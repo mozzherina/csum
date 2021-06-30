@@ -10,8 +10,8 @@ from tensorflow.keras.datasets import mnist
 (x_train, y_train), (x_valid, y_valid) = mnist.load_data()
 
 # Reduce size
-train_size = 5000 # 60'000
-valid_size = 750 # 10'000
+train_size = 60000 # 5000 60'000
+valid_size = 10000 # 750 10'000
 x_train = x_train[:train_size]
 x_valid = x_valid[:valid_size]
 y_train = y_train[:train_size]
