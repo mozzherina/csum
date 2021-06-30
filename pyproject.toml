@@ -7,7 +7,7 @@ authors = ["mozzherina"]
 [tool.poetry.dependencies]
 python = "^3.8.5"
 numpy = "1.19.5"
-tensorflow = "2.4.0"
+tensorflow = ">=2.4.0rc0"
 ipython = "^7.24.1"
 
 [tool.poetry.dev-dependencies]
