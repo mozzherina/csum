@@ -158,4 +158,5 @@ ipython_config.py
 # --cached
 
 .api_key
+.DS_Store
 data/

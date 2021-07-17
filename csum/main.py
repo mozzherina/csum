@@ -42,15 +42,15 @@ async def get_log():
 
 @app.get('/health')
 async def health():
-    return {'status': 'OK'}
+    return {'status': 'success'}
 
 
-@app.post('/load_data')
+@app.put('/load_data')
 async def load_data(data: UploadFile = File(...)):
-    local_file = open(DATA_DIR + data.filename, 'w')
+    local_file = open(DATA_DIR + '/' + data.filename, 'wb')
     local_file.write(data.file.read())
     local_file.close()
-    return {'filename': data.filename}
+    return {'status': 'success'}
 
 
 if __name__ == "__main__":
