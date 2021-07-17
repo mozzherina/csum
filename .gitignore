@@ -157,3 +157,5 @@ ipython_config.py
 #   git rm -r .ipynb_checkpoints/
 # --cached
 
+.api_key
+data/

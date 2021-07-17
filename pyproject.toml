@@ -9,6 +9,16 @@ python = "^3.8.5"
 numpy = "1.19.5"
 tensorflow = ">=2.4.0rc0"
 ipython = "^7.24.1"
+rdflib = "^5.0.0"
+matplotlib = "^3.4.2"
+pydotplus = "^2.0.2"
+graphviz = "^0.16"
+networkx = "^2.5.1"
+python-decouple = "^3.4"
+uvicorn = "^0.14.0"
+fastapi = "^0.66.0"
+aiofiles = "^0.7.0"
+python-multipart = "^0.0.5"
 
 [tool.poetry.dev-dependencies]
 
