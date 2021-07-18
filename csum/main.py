@@ -2,11 +2,13 @@ import uvicorn
 import logging
 import sys
 
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
-from csum import API_PORT, LOG_FILE, DATA_DIR
+from csum import API_PORT, LOG_FILE
+from csum.raplicator import RApplicator
+from csum.graph import Graph
 
 
 def setup_custom_logger(name):
@@ -24,6 +26,8 @@ def setup_custom_logger(name):
 
 
 logger = setup_custom_logger('csum')
+rules_applicator = RApplicator(logger)
+graph = Graph(logger)
 
 app = FastAPI()
 app.add_middleware(
@@ -47,10 +51,31 @@ async def health():
 
 @app.put('/load_data')
 async def load_data(data: UploadFile = File(...)):
-    local_file = open(DATA_DIR + '/' + data.filename, 'wb')
-    local_file.write(data.file.read())
-    local_file.close()
-    return {'status': 'success'}
+    graph.load_data(data.file)
+    return {'status': 'success'} if graph.data else {'status': 'failure'}
+
+
+@app.post('/visualize', response_class=FileResponse)
+async def visualize():
+    if not graph.data:
+        logger.warning('No data for visualization. Use /load_data first')
+        raise HTTPException(
+            status_code=428,
+            detail='No data loaded'
+        )
+    return graph.visualize()
+
+
+@app.post('/apply_r1', response_class=JSONResponse)
+async def apply_r1():
+    if not graph.data:
+        logger.warning('No data for processing. Use /load_data first')
+        raise HTTPException(
+            status_code=428,
+            detail='No data loaded'
+        )
+    # rules_applicator.apply_r1(graph)
+    return JSONResponse(content=graph.to_json())
 
 
 if __name__ == "__main__":
