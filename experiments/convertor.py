@@ -10,7 +10,7 @@ import networkx as nx
 from networkx import Graph as NXGraph
 
 
-url = "data/gufo.ttl"
+url = "../data/CarRental.ttl"
 # url = "https://raw.githubusercontent.com/nemo-ufes/gufo/master/gufo.ttl"
 # url = 'https://www.w3.org/TeamSubmission/turtle/tests/test-30.ttl'
 

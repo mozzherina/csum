@@ -4,6 +4,7 @@ import sys
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.encoders import jsonable_encoder
 from starlette.middleware.cors import CORSMiddleware
 
 from csum import API_PORT, LOG_FILE
@@ -74,8 +75,9 @@ async def apply_r1():
             status_code=428,
             detail='No data loaded'
         )
-    # rules_applicator.apply_r1(graph)
+    rules_applicator.apply_r1(graph)
     return JSONResponse(content=graph.to_json())
+    # return graph.to_json()
 
 
 if __name__ == "__main__":
