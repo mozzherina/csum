@@ -59,23 +59,24 @@ class Graph:
         del data['directed']
         del data['multigraph']
         del data['graph']
-        if base_only:
-
-        else:
-            # nodes processing
-            # nodes_dict will contain list of nodes' ids
-            data['nodes'], nodes = self._nodes_postprocessing(data['nodes'])
-            # links processing
-            # nodes_dict will contain nodes' ids with the sum of in/out links
-            data['links'], nodes = self._links_postprocessing(data['links'], nodes)
-            # remove nodes without links
-            data['nodes'] = self._remove_redundant_nodes(data['nodes'], nodes)
+        # nodes processing, nodes is a dict of nodes' ids
+        data['nodes'], nodes = self._nodes_postprocessing(data['nodes'], base_only)
+        # links processing, nodes will contain nodes' ids with the sum of in/out links
+        data['links'], nodes = self._links_postprocessing(data['links'], nodes)
+        # remove nodes without links
+        # data['nodes'] = self._remove_redundant_nodes(data['nodes'], nodes)
         return data
 
-    def _nodes_postprocessing(self, nodes: list) -> (list, dict):
+    def _nodes_postprocessing(self, nodes: list, base_only: bool) -> (list, dict):
+        """
+        Updates nodes, removes redundant
+        :param nodes: original list of nodes
+        :param base_only: if True, leave only base nodes
+        :return: list of nodes, dict with the same nodes' ids
+        """
+        result = []
         nodes_dict = {}
         for node in nodes:
-            nodes_dict[node['id']] = 0
             node_id = node['id'].split('#')
             node['name'] = node_id[-1]
             # if there is a prefix, add corresponding property
@@ -85,19 +86,29 @@ class Graph:
                     node['isBase'] = True
                 else:
                     node['is' + self._bind[node_id[0]].capitalize()] = True
-            if type(node['id']) is URIRef:
-                node['isURI'] = True
-            if type(node['id']) is BNode:
-                node['isBNode'] = True
-            if type(node['id']) is Literal:
-                node['isLiteral'] = True
-            if node['id'] in self._endurants:
-                node['isEndurant'] = True
-            if node['id'] in self._relators:
-                node['isRelator'] = True
-        return nodes, nodes_dict
+            if (base_only and ('isBase' in node)) or (not base_only):
+                # the node should be kept
+                nodes_dict[node['id']] = 0
+                if type(node['id']) is URIRef:
+                    node['isURI'] = True
+                if type(node['id']) is BNode:
+                    node['isBNode'] = True
+                if type(node['id']) is Literal:
+                    node['isLiteral'] = True
+                if node['id'] in self._endurants:
+                    node['isEndurant'] = True
+                if node['id'] in self._relators:
+                    node['isRelator'] = True
+                result.append(node)
+        return result, nodes_dict
 
     def _links_postprocessing(self, links: list, nodes: dict) -> (list, dict):
+        """
+        Updates links, removes redundant
+        :param links: original list of links
+        :param nodes: dict of nodes, who would be kept
+        :return: list of links, dict of nodes with num of in/out edges
+        """
         result = []
         for link in links:
             label = (str(link['triples'][0][1])).split('#')
@@ -107,14 +118,17 @@ class Graph:
                 link['label'] = label[-1]
             if link['label'] not in self.LINKS_TO_DELETE:
                 del link['triples']
-                result.append(link)
-                nodes[link['source']] += 1
-                nodes[link['target']] += 1
+                if (link['source'] in nodes) and (link['target'] in nodes):
+                    result.append(link)
+                    nodes[link['source']] += 1
+                    nodes[link['target']] += 1
         return result, nodes
 
+    """
     def _remove_redundant_nodes(self, data: list, nodes: dict) -> list:
         result = []
         for node in data:
             if nodes[node['id']] > 0:
                 result.append(node)
         return result
+    """
