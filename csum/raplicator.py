@@ -7,7 +7,7 @@ class RApplicator:
         self.logger = logger
 
     def apply_r1(self, graph: Graph):
-        # graph.data.bind('gufo', Namespace('http://purl.org/nemo/gufo#'))
+
         query = """
             SELECT DISTINCT ?relator ?endurant WHERE {
                 ?relator rdfs:subClassOf gufo:Relator.

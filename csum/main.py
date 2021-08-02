@@ -4,7 +4,6 @@ import sys
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.encoders import jsonable_encoder
 from starlette.middleware.cors import CORSMiddleware
 
 from csum import API_PORT, LOG_FILE
@@ -15,7 +14,7 @@ from csum.graph import Graph
 def setup_custom_logger(name):
     formatter = logging.Formatter(fmt='%(levelname)-8s %(asctime)s %(message)s',
                                   datefmt='%Y-%m-5d %H:%M:%S')
-    handler = logging.FileHandler(LOG_FILE, mode='w')
+    handler = logging.FileHandler(LOG_FILE, mode='w+')
     handler.setFormatter(formatter)
     screen_handler = logging.StreamHandler(stream=sys.stdout)
     screen_handler.setFormatter(formatter)
@@ -50,21 +49,10 @@ async def health():
     return {'status': 'success'}
 
 
-@app.put('/load_data')
+@app.put('/load_data', response_class=JSONResponse)
 async def load_data(data: UploadFile = File(...)):
     graph.load_data(data.file)
-    return {'status': 'success'} if graph.data else {'status': 'failure'}
-
-
-@app.post('/visualize', response_class=FileResponse)
-async def visualize():
-    if not graph.data:
-        logger.warning('No data for visualization. Use /load_data first')
-        raise HTTPException(
-            status_code=428,
-            detail='No data loaded'
-        )
-    return graph.visualize()
+    return JSONResponse(content=graph.get_core(base_only=True))
 
 
 @app.post('/apply_r1', response_class=JSONResponse)
@@ -76,8 +64,7 @@ async def apply_r1():
             detail='No data loaded'
         )
     rules_applicator.apply_r1(graph)
-    return JSONResponse(content=graph.to_json())
-    # return graph.to_json()
+    return JSONResponse(content=graph.get_core(base_only=True))
 
 
 if __name__ == "__main__":
