@@ -5,7 +5,7 @@ from networkx.readwrite import json_graph
 
 class Graph:
     # should be set while in props file
-    LINKS_TO_DELETE = ['rdfs:label', 'rdf:label']
+    LINKS_TO_DELETE = [] # ['rdfs:label', 'rdf:label']
 
     def __init__(self, logger):
         self.logger = logger
@@ -91,14 +91,19 @@ class Graph:
                 nodes_dict[node['id']] = 0
                 if type(node['id']) is URIRef:
                     node['isURI'] = True
-                if type(node['id']) is BNode:
+                    node['symbolType'] = 'circle'
+                elif type(node['id']) is BNode:
                     node['isBNode'] = True
-                if type(node['id']) is Literal:
+                    del node['name']
+                elif type(node['id']) is Literal:
                     node['isLiteral'] = True
+                    node['symbolType'] = 'square'
                 if node['id'] in self._endurants:
                     node['isEndurant'] = True
+                    node['color'] = 'red'
                 if node['id'] in self._relators:
                     node['isRelator'] = True
+                    node['color'] = 'green'
                 result.append(node)
         return result, nodes_dict
 
