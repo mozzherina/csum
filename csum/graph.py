@@ -1,5 +1,5 @@
 from rdflib import URIRef, BNode, Literal, Graph as RDFGraph
-from rdflib.extras.external_graph_libs import rdflib_to_networkx_graph
+from rdflib.extras.external_graph_libs import rdflib_to_networkx_digraph
 from networkx.readwrite import json_graph
 
 
@@ -53,7 +53,7 @@ class Graph:
         return results
 
     def get_core(self, base_only: bool):
-        g = rdflib_to_networkx_graph(self._data)
+        g = rdflib_to_networkx_digraph(self._data)
         self.logger.info("Graph converted to networkx with length {}".format(len(g)))
         data = json_graph.node_link_data(g)
         del data['directed']
@@ -86,7 +86,8 @@ class Graph:
                     node['isBase'] = True
                 else:
                     node['is' + self._bind[node_id[0]].capitalize()] = True
-            if (base_only and ('isBase' in node)) or (not base_only):
+            if (base_only and (('isBase' in node) or ('isGufo' in node))) \
+                    or (not base_only):
                 # the node should be kept
                 nodes_dict[node['id']] = 0
                 if type(node['id']) is URIRef:
@@ -94,7 +95,7 @@ class Graph:
                     node['symbolType'] = 'circle'
                 elif type(node['id']) is BNode:
                     node['isBNode'] = True
-                    del node['name']
+                    node['name'] = ''
                 elif type(node['id']) is Literal:
                     node['isLiteral'] = True
                     node['symbolType'] = 'square'

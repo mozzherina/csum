@@ -52,7 +52,7 @@ async def health():
 @app.put('/load_data', response_class=JSONResponse)
 async def load_data(data: UploadFile = File(...)):
     graph.load_data(data.file)
-    return JSONResponse(content=graph.get_core(base_only=True))
+    return JSONResponse(content=graph.get_core(base_only=False))
 
 
 @app.post('/apply_r1', response_class=JSONResponse)
