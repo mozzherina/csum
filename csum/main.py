@@ -18,11 +18,11 @@ def setup_custom_logger(name):
     handler.setFormatter(formatter)
     screen_handler = logging.StreamHandler(stream=sys.stdout)
     screen_handler.setFormatter(formatter)
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    logger.addHandler(screen_handler)
-    return logger
+    _logger = logging.getLogger(name)
+    _logger.setLevel(logging.INFO)
+    _logger.addHandler(handler)
+    _logger.addHandler(screen_handler)
+    return _logger
 
 
 logger = setup_custom_logger('csum')
@@ -51,8 +51,12 @@ async def health():
 
 @app.put('/load_data', response_class=JSONResponse)
 async def load_data(data: UploadFile = File(...)):
-    graph.load_data(data.file)
-    return JSONResponse(content=graph.get_core(base_only=False))
+    if graph.load_data(data.file):
+        graph_json = graph.visualize()
+        if graph_json:
+            return JSONResponse(content=graph_json)
+    return JSONResponse(content={'Error': 'Not able to parse the graph'},
+                        status_code=400)
 
 
 @app.post('/apply_r1', response_class=JSONResponse)
