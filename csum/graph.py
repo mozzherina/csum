@@ -4,7 +4,7 @@ from networkx.readwrite import json_graph
 from colour import Color
 
 from csum import LANGUAGE, EXCLUDED_PREFIX, SUBCLASS_STROKE, \
-    RDFTYPE_STROKE, LABEL_NAME, ANCESTOR_NAME
+    RDFTYPE_STROKE, LABEL_NAME, ANCESTOR_NAME, PROPERTY_NAME
 
 
 class Graph:
@@ -77,8 +77,8 @@ class Graph:
                 nodes_dict[node['id']]['links'] = 0
             # links processing, removing redundant
             data['links'] = self._links_postprocessing(data['links'], nodes_dict)
-            # nodes processing, nodes is a dict of nodes' ids
-            data['nodes'] = self._nodes_postprocessing(data['nodes'])
+            # nodes processing, adding additional links
+            data['nodes'] = self._nodes_postprocessing(data['nodes'], nodes_dict, data['links'])
             return data
 
     def _links_postprocessing(self, links: list, nodes: dict) -> list:
@@ -90,77 +90,112 @@ class Graph:
         """
         result = []
         for link in links:
-            # label = ['http://www.w3.org/2002/07/owl', 'onProperty']
-            label = (str(link['triples'][0][1])).split('#')
-            prefix = self._bind[label[0]]
-            link['label'] = prefix + ':' + label[-1] if prefix else label[-1]
-            # comment
+            link['label'] = self._reduce_prefix(str(link['triples'][0][1]))
+            # rdfs:comment: add as property
             if link['label'] == 'rdfs:comment':
                 nodes[link['source']]['comment'] = str(link['target'])
-            # label
+            # rdfs:label: if basic language, then use; otherwise add as property
             elif link['label'] == 'rdfs:label':
                 if link['target'].language == LANGUAGE:
                     nodes[link['source']]['label'] = str(link['target'])
                 else:
                     self._add_property(nodes[link['source']], LABEL_NAME,
                                        str(link['target']) + '@' + link['target'].language)
-            # subclass
-            elif link['label'] == 'rdfs:subClassOf':
-                if type(link['source']) is URIRef and type(link['target']) is URIRef:
-                    result.append(self._add_link(link, SUBCLASS_STROKE, nodes[link['source']],
-                                                 nodes[link['target']]))
-                else:
-                    print("subclass of bnode")
-            # type
+            # rdfs:subclass or subproperty:
+            # if target is URI, then save link
+            # if target is BNode, then include in properties
+            elif (link['label'] == 'rdfs:subClassOf') or (link['label'] == 'rdfs:subPropertyOf'):
+                if type(link['target']) is URIRef: # type(link['source']) is URIRef and
+                    result.append(self._update_link(link, nodes[link['source']],
+                                                    nodes[link['target']], SUBCLASS_STROKE))
+                else: # elif type(link['target']) is BNode:
+                    self._add_property(nodes[link['source']], link['label'], link['target'])
+            # rdf:type: if target is excluded, then save as property; otherwise save link
             elif link['label'] == 'rdf:type':
                 if any('/' + s + '#' in str(link['target']) for s in EXCLUDED_PREFIX):
-                    self._add_property(nodes[link['source']], ANCESTOR_NAME, str(link['target']))
+                    self._add_property(nodes[link['source']], ANCESTOR_NAME,
+                                       self._reduce_prefix(str(link['target'])))
                 else:
-                    result.append(self._add_link(link, RDFTYPE_STROKE, nodes[link['source']],
-                                                 nodes[link['target']]))
+                    result.append(self._update_link(link, nodes[link['source']],
+                                                    nodes[link['target']], RDFTYPE_STROKE))
+            # rdfs:domain and range: include as property
+            elif (link['label'] == 'rdfs:domain') or (link['label'] == 'rdfs:range'):
+                self._add_property(nodes[link['source']], link['label'], link['target'], as_list=False)
+            # otherwise include as property
             else:
-                print(link['label'])
+                self._add_property(nodes[link['source']], link['label'], link['target'])
         return result
 
-    def _add_property(self, node, name: str, value: str):
-        if name not in node:
-            node[name] = []
-        node[name].append(value)
+    def _reduce_prefix(self, name: str) -> str:
+        label = name.split('#')
+        prefix = self._bind[label[0]]
+        return prefix + ':' + label[-1] if prefix else label[-1]
 
-    def _add_link(self, link, stroke, source, target):
+    def _add_property(self, node, name: str, value: str, as_list = True):
+        if as_list:
+            if name not in node:
+                node[name] = []
+            node[name].append(value)
+        else:
+            node[name] = value
+
+    def _update_link(self, link, source, target, stroke=0):
         del link['triples']
         link['strokeDasharray'] = stroke
         source['links'] += 1
         target['links'] += 1
         return link
 
-    def _nodes_postprocessing(self, nodes: list) -> list:
+    def _create_link(self, nodes_dict, source, target, label, stroke=0, **kwargs):
+        link = {"weight": 1, "source": source, "target": target,
+                "label": label, "strokeDasharray": stroke}
+        link.update(kwargs)
+        nodes_dict[source]['links'] += 1
+        nodes_dict[target]['links'] += 1
+        return link
+
+    def _nodes_postprocessing(self, nodes: list, nodes_dict: dict, links: list) -> list:
         """
         Updates nodes, removes redundant
         :param nodes: original list of nodes
+        :param nodes_dict: original dictionary of nodes id -> node content
+        :param links: processed list of links
         :return: list of nodes
         """
         result = []
         for node in nodes:
+            if 'label' not in node:
+                node['label'] = node['id'].split('#')[-1]
+            if 'rdfs:domain' in node:
+                if 'rdfs:range' in node:
+                    # convert this into link between nodes
+                    links.append(self._create_link(nodes_dict, node['rdfs:domain'],
+                                                   node['rdfs:range'], node['label']))
+                    links.append(self._create_link(nodes_dict, node['rdfs:range'],
+                                                   node['rdfs:domain'], node['label']))
+                else:
+                    # if it is domain only, then convert this into property
+                    self._add_property(nodes_dict[node['rdfs:domain']], PROPERTY_NAME,
+                                       self._reduce_prefix(str(node['id']))) # node or node['label']
+                    node['domain'] = self._reduce_prefix(str(node['rdfs:domain']))
+                    del node['rdfs:domain']
+            if 'rdfs:subClassOf' in node:
+                # could be to the BNode only, since others are already converted to links
+                for n in node['rdfs:subClassOf']:
+                    bnode = nodes_dict[n]
+                    prop = bnode['owl:onProperty'][0]
+                    label = prop if type(prop) is URIRef else nodes_dict[prop]['owl:inverseOf'][0]
+                    label = self._reduce_prefix(label)
+                    target = bnode['owl:onClass'][0] if 'owl:onClass' in bnode else bnode['owl:someValuesFrom'][0]
+                    additional = {}
+                    if 'owl:qualifiedCardinality' in bnode:
+                        additional['cardinality'] = bnode['owl:qualifiedCardinality'][0]
+                    if 'owl:minQualifiedCardinality' in bnode:
+                        additional['minCardinality'] = bnode['owl:minQualifiedCardinality'][0]
+                    links.append(self._create_link(nodes_dict, node['id'], target, label, **additional))
+                del node['rdfs:subClassOf']
             if node['links'] > 0:
-                del node['links']
-                node_id = node['id'].split('#')
-                if 'label' not in node:
-                    node['label'] = node_id[-1]
-                if ANCESTOR_NAME in node:
-                    anc_list = []
-                    for ancestor in node[ANCESTOR_NAME]:
-                        label = ancestor.split('#')
-                        prefix = self._bind[label[0]]
-                        anc_list.append(prefix + ':' + label[-1] if prefix else label[-1])
-                    node[ANCESTOR_NAME] = anc_list
-                # if there is a prefix, add corresponding property
-                if len(node_id) > 1:
-                    # if prefix is empty, then it's a base prefix
-                    if not self._bind[node_id[0]]:
-                        node['isBase'] = True
-                    else:
-                        node['is' + self._bind[node_id[0]].capitalize()] = True
+                #del node['links']
                 if node['id'] in self._endurants:
                     node['isEndurant'] = True
                     node['color'] = 'red'
@@ -169,4 +204,3 @@ class Graph:
                     node['color'] = 'green'
                 result.append(node)
         return result
-
