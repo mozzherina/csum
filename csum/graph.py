@@ -5,7 +5,7 @@ from colour import Color
 
 from csum import LANGUAGE, \
     LABEL_NAME, ANCESTOR_NAME, PROPERTY_NAME, \
-    STROKE_SUBCLASS, STROKE_RDFTYPE, \
+    STROKE_SUBCLASS, STROKE_OTHER, \
     COLOUR_BASIC, COLOUR_RELATOR, COLOUR_ENDURANT1, \
     COLOUR_ENDURANT2, COLOUR_PREFIX1, COLOUR_PREFIX2
 
@@ -118,24 +118,25 @@ class Graph:
         """
         result = []
         for link in links:
-            label, link['color'] = self._reduce_prefix(str(link['triples'][0][1]))
+            label, _ = self._reduce_prefix(str(link['triples'][0][1]))
             link['label'] = label
             # rdfs:comment: add as property
             if label == 'rdfs:comment':
                 nodes[link['source']]['comment'] = str(link['target'])
             # rdfs:label: if basic language, then use; otherwise add as property
             elif (label == 'rdfs:label') or (label == 'rdf:label'):
-                if hasattr(link['target'], 'language'):
-                    if link['target'].language == LANGUAGE:
-                        nodes[link['source']]['label'] = str(link['target'])
+                if link['target'].language == LANGUAGE:
+                    nodes[link['source']]['label'] = str(link['target'])
                 else:
-                    other_label = str(link['target']) + '@' + link['target'].language
-                    self._add_property(nodes[link['source']], LABEL_NAME, other_label)
-            # rdfs:subclass or subproperty or type:
+                    language = '@' + link['target'].language if link['target'].language else ''
+                    self._add_property(
+                        nodes[link['source']], LABEL_NAME, str(link['target']) + language
+                    )
+            # rdfs:subClassOf or rdfs:subPropertyOf or rdf:type:
             elif (label == 'rdfs:subClassOf') or (label == 'rdfs:subPropertyOf') or \
                     (label == 'rdf:type'):
                 if any('/' + s + '#' in str(link['target']) for s in excluded):
-                    # target node should be excluded, keep it as a property
+                    # target node must be excluded, keep it as a property
                     self._add_property(
                         nodes[link['source']], ANCESTOR_NAME, self._reduce_prefix(str(link['target']))[0]
                     )
@@ -144,16 +145,18 @@ class Graph:
                     result.append(self._update_link(
                         link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
                     ))
-                elif type(link['target']) is BNode:
+                else: # (type(link['source']) is URIRef) and (type(link['target']) is BNode):
                     self._add_property(nodes[link['source']], label, link['target'])
+                """
                 elif type(link['source']) is BNode:
                     self._add_property(
                         nodes[link['source']], ANCESTOR_NAME, self._reduce_prefix(str(link['target']))[0]
                     )
                 else:
                     result.append(self._update_link(
-                        link, nodes[link['source']], nodes[link['target']], STROKE_RDFTYPE
+                        link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
                     ))
+                """
             # rdfs:domain and range: include as property
             elif (label == 'rdfs:domain') or (label == 'rdfs:range'):
                 self._add_property(nodes[link['source']], label, link['target'], as_list=False)
@@ -192,7 +195,7 @@ class Graph:
             node[name] = value
 
     @staticmethod
-    def _update_link(link, source, target, stroke=0):
+    def _update_link(link, source, target, stroke=STROKE_OTHER):
         """
         Updates existing link
         :param link: object of
@@ -208,7 +211,7 @@ class Graph:
         return link
 
     @staticmethod
-    def _create_link(nodes_dict, source, target, label, stroke=0, **kwargs):
+    def _create_link(nodes_dict, source, target, label, stroke=STROKE_OTHER, **kwargs):
         """
         Crates new link which didn't exist before
         :param nodes_dict: dictionary of all nodes
@@ -265,10 +268,9 @@ class Graph:
                     bnode = nodes_dict[n]
                     prop = bnode['owl:onProperty'][0]
                     label = prop if type(prop) is URIRef else nodes_dict[prop]['owl:inverseOf'][0]
-                    label, color = self._reduce_prefix(label)
+                    label, _ = self._reduce_prefix(label)
                     target = bnode['owl:onClass'][0] if 'owl:onClass' in bnode else bnode['owl:someValuesFrom'][0]
-                    additional = {'color': color}
-                    additional.update(self._get_cardinality(bnode))
+                    additional = self._get_cardinality(bnode)
                     links.append(self._create_link(
                         nodes_dict, node['id'], target, label, **additional
                     ))

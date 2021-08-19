@@ -2,8 +2,6 @@ import uvicorn
 import logging
 import sys
 
-from typing import Optional, List
-
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
@@ -52,10 +50,12 @@ async def health():
 
 
 @app.put('/load_data', response_class=JSONResponse)
-async def load_data(original: Optional[bool] = SHOW_ORIGIN,
+async def load_data(original: bool = SHOW_ORIGIN,
+                    excluded: str = None,
                     data: UploadFile = File(...)):
+    excluded = excluded.split(',') if excluded else EXCLUDED_PREFIX
     if graph.load_data(data.file):
-        graph_json = graph.visualize(original, EXCLUDED_PREFIX)
+        graph_json = graph.visualize(original, excluded)
         if graph_json:
             return JSONResponse(content=graph_json)
     return JSONResponse(content={'Error': 'Not able to parse the graph'},
