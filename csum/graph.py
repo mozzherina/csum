@@ -131,26 +131,26 @@ class Graph:
                 else:
                     other_label = str(link['target']) + '@' + link['target'].language
                     self._add_property(nodes[link['source']], LABEL_NAME, other_label)
-            # rdfs:subclass or subproperty:
-            elif (label == 'rdfs:subClassOf') or (label == 'rdfs:subPropertyOf'):
-                if (type(link['source']) is URIRef) and (type(link['target']) is URIRef):
-                    # keep this link, but update its properties
-                    result.append(self._update_link(
-                        link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
-                    ))
-                else:
-                    # link to the BNode, which should be included as property
-                    self._add_property(nodes[link['source']], label, link['target'])
-            # rdf:type: if target is excluded, then save as property; otherwise save link
-            elif label == 'rdf:type':
-                if (type(nodes[link['source']]['id']) is BNode) or \
-                        any('/' + s + '#' in str(link['target']) for s in excluded):
+            # rdfs:subclass or subproperty or type:
+            elif (label == 'rdfs:subClassOf') or (label == 'rdfs:subPropertyOf') or \
+                    (label == 'rdf:type'):
+                if any('/' + s + '#' in str(link['target']) for s in excluded):
                     # target node should be excluded, keep it as a property
                     self._add_property(
                         nodes[link['source']], ANCESTOR_NAME, self._reduce_prefix(str(link['target']))[0]
                     )
-                else:
+                elif (type(link['source']) is URIRef) and (type(link['target']) is URIRef):
                     # keep this link, but update its properties
+                    result.append(self._update_link(
+                        link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
+                    ))
+                elif type(link['target']) is BNode:
+                    self._add_property(nodes[link['source']], label, link['target'])
+                elif type(link['source']) is BNode:
+                    self._add_property(
+                        nodes[link['source']], ANCESTOR_NAME, self._reduce_prefix(str(link['target']))[0]
+                    )
+                else:
                     result.append(self._update_link(
                         link, nodes[link['source']], nodes[link['target']], STROKE_RDFTYPE
                     ))
