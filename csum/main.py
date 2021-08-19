@@ -2,11 +2,13 @@ import uvicorn
 import logging
 import sys
 
+from typing import Optional, List
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
-from csum import API_PORT, LOG_FILE
+from csum import API_PORT, LOG_FILE, SHOW_ORIGIN, EXCLUDED_PREFIX
 from csum.raplicator import RApplicator
 from csum.graph import Graph
 
@@ -50,15 +52,16 @@ async def health():
 
 
 @app.put('/load_data', response_class=JSONResponse)
-async def load_data(data: UploadFile = File(...)):
+async def load_data(original: Optional[bool] = SHOW_ORIGIN,
+                    data: UploadFile = File(...)):
     if graph.load_data(data.file):
-        graph_json = graph.visualize()
+        graph_json = graph.visualize(original, EXCLUDED_PREFIX)
         if graph_json:
             return JSONResponse(content=graph_json)
     return JSONResponse(content={'Error': 'Not able to parse the graph'},
                         status_code=400)
 
-
+"""
 @app.post('/apply_r1', response_class=JSONResponse)
 async def apply_r1():
     if not graph.data:
@@ -69,7 +72,7 @@ async def apply_r1():
         )
     rules_applicator.apply_r1(graph)
     return JSONResponse(content=graph.get_core(base_only=True))
-
+"""
 
 if __name__ == "__main__":
     uvicorn.run(app, port=API_PORT)
