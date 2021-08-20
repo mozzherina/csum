@@ -20,37 +20,45 @@ class RApplicator:
         relations = {}
         for row in qres_all:
             if row.relator not in relations:
-                relations[row.relator] = []
-            relations[row.relator].append((row.endurant, row.bnode))
+                relations[row.relator] = {}
+            relations[row.relator][row.endurant] = row.bnode
 
         for relator in graph.relators:
-            qres = graph.data.query(query, initBindings={'relator': relator})
-            mediations = []
-            for row in qres:
-                if row.endurant in graph.endurants:
-                    mediations.append(row.endurant)
-            if len(mediations) > 1:
-                for i in range(len(mediations)):
-                    endurant1 = mediations[i]
-                    for j in range(i + 1, len(mediations)):
-                        endurant2 = mediations[j]
-                        # speed? query?
-                        s1 = self._check_connection(graph.data, endurant1, endurant2)
-                        s2 = self._check_connection(graph.data, endurant2, endurant1)
-                        s = s1 if s1 else s2
-                        if s:
-                            print(f"Connection between {endurant1} and {endurant2}")
-                            # delete everything
-                            # Change type of <y:> from <c:> to <d:>
-                            graph.data.update("""
-                                     DELETE { <y:> a <c:> }
-                                     INSERT { <y:> a <d:> }
-                                     WHERE { <y:> a <c:> }
-                                     """)
-                        else:
-                            print(f"No connection between {endurant1} and {endurant2}")
+            if relator in relations:
+                mediations = list(relations[relator].keys())
+                if len(mediations) > 1:
+                    for i in range(len(mediations)):
+                        endurant1 = mediations[i]
+                        for j in range(i + 1, len(mediations)):
+                            endurant2 = mediations[j]
+                            # speed? query?
+                            if self._check_connection(graph.data, endurant1, endurant2) or \
+                                    self._check_connection(graph.data, endurant2, endurant1):
+                                #print(f"Connection between {endurant1} and {endurant2}")
+                                bnode1 = relations[relator][endurant1]
+                                bnode2 = relations[relator][endurant2]
+                                graph.data.update(self._generate_update(),
+                                                  initBindings={'from': bnode1, 'old': relator, 'to': endurant2})
+                                graph.data.update(self._generate_update(),
+                                                  initBindings={'from': bnode2, 'old': relator, 'to': endurant1})
+                            else:
+                                print(f"No connection between {endurant1} and {endurant2}")
+                for r in mediations:
+                    graph.data.remove((relations[relator][r], None, None))
+                graph.data.remove((relator, None, None))
 
-    def _check_connection(self, g, endurant1, endurant2):
+    @staticmethod
+    def _check_connection(g, endurant1, endurant2):
         for (s, _, _) in g.triples((None, RDFS.domain, endurant1)):
             for (s, _, _) in g.triples((s, RDFS.range, endurant2)):
-                return s
+                return True
+        return False
+
+    @staticmethod
+    def _generate_update():
+        s = """
+            DELETE { ?from owl:onClass ?old } 
+            INSERT { ?from owl:onClass ?to } 
+            WHERE { ?from owl:onClass ?old }
+            """
+        return s
