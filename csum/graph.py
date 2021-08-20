@@ -1,4 +1,4 @@
-from rdflib import URIRef, BNode, Literal, Graph as RDFGraph
+from rdflib import URIRef, Graph as RDFGraph
 from rdflib.extras.external_graph_libs import rdflib_to_networkx_digraph
 from networkx.readwrite import json_graph
 from colour import Color
@@ -11,6 +11,8 @@ from csum import LANGUAGE, \
 
 
 class Graph:
+    SUBCLASS_LABELS = ['rdfs:subClassOf', 'rdfs:subPropertyOf', 'rdf:type']
+
     def __init__(self, logger):
         self.logger = logger
         self._data = None
@@ -31,6 +33,9 @@ class Graph:
         result['color_prefixes'] = COLOUR_PREFIX1
         return result
 
+    ##############################################
+    # Data Loading
+    ##############################################
     def load_data(self, graph_data) -> bool:
         try:
             self._data = RDFGraph().parse(graph_data, format="turtle")
@@ -42,19 +47,26 @@ class Graph:
             self.logger.info("Loaded graph has {} statements".format(n_statements))
             self._description['origin_statements'] = n_statements
             # set up bindings of the rdf graph
-            self._bind = dict()
-            namespaces = list(self._data.namespaces())
-            n = len(namespaces)
-            colors = list(Color(COLOUR_PREFIX1).range_to(Color(COLOUR_PREFIX2), n))
-            for (prefix, namespace), color in zip(namespaces, colors):
-                ns = str(namespace)
-                if ns[-1] == '#':
-                    ns = ns[:-1]
-                self._bind[ns] = (prefix, str(color))
+            self._bind = self._set_binds()
             # set up of gufo's properties of the graph
             self._relators = self._get_relators()
+            self._description['num_relators'] = len(self._relators)
             self._endurants = self._get_endurants()
+            self._description['num_endurants'] = len(self._endurants)
             return True
+
+    def _set_binds(self) -> dict:
+        result = dict()
+        # self._data.namespaces() is a generator
+        namespaces = list(self._data.namespaces())
+        n = len(namespaces)
+        colors = list(Color(COLOUR_PREFIX1).range_to(Color(COLOUR_PREFIX2), n))
+        for (prefix, namespace), color in zip(namespaces, colors):
+            ns = str(namespace)
+            if ns[-1] == '#':
+                ns = ns[:-1]
+            result[ns] = (prefix, str(color))
+        return result
 
     def _get_relators(self):
         results = set()
@@ -77,10 +89,13 @@ class Graph:
                     results[subj] = str(colors[n])
         return results
 
+    ##############################################
+    # Data Visualizing
+    ##############################################
     def visualize(self, original: bool, excluded: list):
         """
         Reduces graph for a proper visualization
-        :param original: show original graph
+        :param original: if True show original graph
         :param excluded: list of excluded prefixes, that should be collapsed
         :return: json-like graph structure
         """
@@ -92,25 +107,28 @@ class Graph:
         else:
             n_statements = len(g)
             self.logger.info("Graph converted to networkx with length {}".format(n_statements))
-            self._description['networkx_statements'] = n_statements
             data = json_graph.node_link_data(g)
             del data['directed']
             del data['multigraph']
             del data['graph']
-            if not original:
-                # making dictionary out of nodes
-                nodes_dict = {}
-                for node in data['nodes']:
-                    nodes_dict[node['id']] = node
-                    nodes_dict[node['id']]['links'] = 0
-                data['links'] = self._links_postprocessing(data['links'], nodes_dict, excluded)
-                data['nodes'] = self._nodes_postprocessing(data['nodes'], nodes_dict, data['links'])
-            # data['graph'] = self._make_description()
+            # making dictionary out of nodes
+            nodes_dict = {}
+            for node in data['nodes']:
+                nodes_dict[node['id']] = node
+                nodes_dict[node['id']]['links'] = 0
+            # links and nodes processing
+            data['links'] = self._links_postprocessing(original, data['links'], nodes_dict, excluded)
+            data['nodes'] = self._nodes_postprocessing(original, data['nodes'], nodes_dict, data['links'])
+            data['graph'] = self._make_description(self._description.copy(),
+                                                   n_statements, len(data['nodes']), len(data['links']))
             return data
 
-    def _links_postprocessing(self, links: list, nodes: dict, excluded: list) -> list:
+    ##############################################
+    # PART 1: Links processing
+    def _links_postprocessing(self, original: bool, links: list, nodes: dict, excluded: list) -> list:
         """
         Updates links, removes redundant
+        :param original: if True show original graph
         :param links: original list of links
         :param nodes: original dictionary of nodes id -> node content
         :param excluded: list of excluded prefixes
@@ -118,51 +136,33 @@ class Graph:
         """
         result = []
         for link in links:
-            label, _ = self._reduce_prefix(str(link['triples'][0][1]))
-            link['label'] = label
-            # rdfs:comment: add as property
-            if label == 'rdfs:comment':
-                nodes[link['source']]['comment'] = str(link['target'])
-            # rdfs:label: if basic language, then use; otherwise add as property
-            elif (label == 'rdfs:label') or (label == 'rdf:label'):
-                if link['target'].language == LANGUAGE:
-                    nodes[link['source']]['label'] = str(link['target'])
-                else:
-                    language = '@' + link['target'].language if link['target'].language else ''
-                    self._add_property(
-                        nodes[link['source']], LABEL_NAME, str(link['target']) + language
-                    )
-            # rdfs:subClassOf or rdfs:subPropertyOf or rdf:type:
-            elif (label == 'rdfs:subClassOf') or (label == 'rdfs:subPropertyOf') or \
-                    (label == 'rdf:type'):
-                if any('/' + s + '#' in str(link['target']) for s in excluded):
-                    # target node must be excluded, keep it as a property
-                    self._add_property(
-                        nodes[link['source']], ANCESTOR_NAME, self._reduce_prefix(str(link['target']))[0]
-                    )
-                elif (type(link['source']) is URIRef) and (type(link['target']) is URIRef):
-                    # keep this link, but update its properties
-                    result.append(self._update_link(
-                        link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
-                    ))
-                else: # (type(link['source']) is URIRef) and (type(link['target']) is BNode):
-                    self._add_property(nodes[link['source']], label, link['target'])
-                """
-                elif type(link['source']) is BNode:
-                    self._add_property(
-                        nodes[link['source']], ANCESTOR_NAME, self._reduce_prefix(str(link['target']))[0]
-                    )
-                else:
-                    result.append(self._update_link(
-                        link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
-                    ))
-                """
-            # rdfs:domain and range: include as property
-            elif (label == 'rdfs:domain') or (label == 'rdfs:range'):
-                self._add_property(nodes[link['source']], label, link['target'], as_list=False)
-            # otherwise include as property
+            link['label'], _ = self._reduce_prefix(str(link['triples'][0][1]))
+            if original:
+                result.append(self._basic_link_processing(link, nodes))
             else:
-                self._add_property(nodes[link['source']], label, link['target'])
+                label = link['label']
+                # rdfs:comment: add as property
+                if label == 'rdfs:comment':
+                    nodes[link['source']]['comment'] = str(link['target'])
+                # rdfs:label: if basic language, then use; otherwise add as property
+                elif (label == 'rdfs:label') or (label == 'rdf:label'):
+                    target_lang = link['target'].language
+                    if target_lang == LANGUAGE:
+                        nodes[link['source']]['label'] = str(link['target'])
+                    else:
+                        language = '@' + target_lang if target_lang else ''
+                        self._add_property(
+                            nodes[link['source']], LABEL_NAME, str(link['target']) + language
+                        )
+                # rdfs:domain and range: include as property
+                elif (label == 'rdfs:domain') or (label == 'rdfs:range'):
+                    self._add_property(nodes[link['source']], label, link['target'], as_list=False)
+                # if one of subclasses, more complicated logic
+                elif label in self.SUBCLASS_LABELS:
+                    result.extend(self._subclass_link_processing(excluded, link, nodes))
+                # otherwise include as property
+                else:
+                    self._add_property(nodes[link['source']], label, link['target'])
         return result
 
     def _reduce_prefix(self, name: str) -> (str, str):
@@ -177,6 +177,58 @@ class Graph:
             return prefix, self._bind[label[0]][1]
         return label[-1], COLOUR_BASIC
 
+    def _basic_link_processing(self, link, nodes):
+        """
+        Processes link for an original graph
+        :param link: current link for processing
+        :param nodes: dictionary of all nodes
+        :return: updated link
+        """
+        if link['label'] in self.SUBCLASS_LABELS:
+            self._update_link(
+                link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
+            )
+        else:
+            self._update_link(link, nodes[link['source']], nodes[link['target']])
+        return link
+
+    def _subclass_link_processing(self, excluded, link, nodes):
+        """
+        Processes subclass links
+        :param excluded: list of excluded prefixes
+        :param link: current link for processing
+        :param nodes: dictionary of all nodes
+        :return: list of links to be saved further
+        """
+        result = []
+        if any('/' + s + '#' in str(link['target']) for s in excluded):
+            # target node must be excluded, keep it as a property
+            target, _ = self._reduce_prefix(str(link['target']))
+            self._add_property(nodes[link['source']], ANCESTOR_NAME, target)
+        elif (type(link['source']) is URIRef) and (type(link['target']) is URIRef):
+            # keep this link, but update its properties
+            self._update_link(
+                link, nodes[link['source']], nodes[link['target']], STROKE_SUBCLASS
+            )
+            result.append(link)
+        else:
+            self._add_property(nodes[link['source']], link['label'], link['target'])
+        return result
+
+    @staticmethod
+    def _update_link(link, source, target, stroke=STROKE_OTHER):
+        """
+        Modifies existing link
+        :param link: object of
+        :param source: from-node
+        :param target: to-node
+        :param stroke: stroke pattern for link
+        """
+        del link['triples']
+        link['strokeDasharray'] = stroke
+        source['links'] += 1
+        target['links'] += 1
+
     @staticmethod
     def _add_property(node, name: str, value: str, as_list=True):
         """
@@ -185,7 +237,6 @@ class Graph:
         :param name: name of the property
         :param value: value of the property
         :param as_list: if true, added as [value]
-        :return: updated node
         """
         if as_list:
             if name not in node:
@@ -194,21 +245,61 @@ class Graph:
         else:
             node[name] = value
 
-    @staticmethod
-    def _update_link(link, source, target, stroke=STROKE_OTHER):
+    ##############################################
+    # PART 2: Nodes processing
+    def _nodes_postprocessing(self, original: bool, nodes: list, nodes_dict: dict, links: list) -> list:
         """
-        Updates existing link
-        :param link: object of
-        :param source: from-node
-        :param target: to-node
-        :param stroke: stroke pattern for link
-        :return: updated link
+        Updates nodes, removes redundant
+        :param original: if True show original graph
+        :param nodes: original list of nodes
+        :param nodes_dict: original dictionary of nodes id -> node content
+        :param links: processed list of links
+        :return: list of nodes
         """
-        del link['triples']
-        link['strokeDasharray'] = stroke
-        source['links'] += 1
-        target['links'] += 1
-        return link
+        result = []
+        for node in nodes:
+            if 'label' not in node:
+                node['label'], node['color'] = self._reduce_prefix(str(node['id']))
+            if not original:
+                if 'rdfs:domain' in node:
+                    if 'rdfs:range' in node:
+                        # convert this into link between nodes
+                        links.append(self._create_link(
+                            nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label']
+                        ))
+                        links.append(self._create_link(
+                            nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label']
+                        ))
+                    else:
+                        # if it is domain only, then convert this into property
+                        self._add_property(
+                            nodes_dict[node['rdfs:domain']], PROPERTY_NAME, node['label']
+                        )
+                        node['domain'], _ = self._reduce_prefix(str(node['rdfs:domain']))
+                        del node['rdfs:domain']
+                if 'rdfs:subClassOf' in node:
+                    # could be BNodes only, since others are already converted to links
+                    self._bnodes_propagation(nodes_dict, node, links)
+            if original or (node['links'] > 0):
+                # del node['links']
+                self._colour_nodes(node)
+                result.append(node)
+        return result
+
+    def _colour_nodes(self, node):
+        """
+        Creates a color property for node
+        :param node: node for processing
+        """
+        if 'color' not in node:
+            if node['id'] in self._endurants:
+                node['isEndurant'] = True
+                node['color'] = self._endurants[node['id']]
+            elif node['id'] in self._relators:
+                node['isRelator'] = True
+                node['color'] = COLOUR_RELATOR
+            else:
+                node['color'] = COLOUR_BASIC
 
     @staticmethod
     def _create_link(nodes_dict, source, target, label, stroke=STROKE_OTHER, **kwargs):
@@ -234,55 +325,57 @@ class Graph:
         nodes_dict[target]['links'] += 1
         return link
 
-    def _nodes_postprocessing(self, nodes: list, nodes_dict: dict, links: list) -> list:
+    def _bnodes_propagation(self, nodes_dict, node, links):
         """
-        Updates nodes, removes redundant
-        :param nodes: original list of nodes
-        :param nodes_dict: original dictionary of nodes id -> node content
+        Propagates BNodes properties to the current node
+        :param nodes_dict: dictionary of all nodes
+        :param node: node for processing
         :param links: processed list of links
-        :return: list of nodes
         """
-        result = []
-        for node in nodes:
-            if 'label' not in node:
-                node['label'], node['color'] = self._reduce_prefix(str(node['id']))
-            if 'rdfs:domain' in node:
-                if 'rdfs:range' in node:
-                    # convert this into link between nodes
-                    links.append(self._create_link(
-                        nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label']
-                    ))
-                    links.append(self._create_link(
-                        nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label']
-                    ))
-                else:
-                    # if it is domain only, then convert this into property
-                    self._add_property(
-                        nodes_dict[node['rdfs:domain']], PROPERTY_NAME, node['label']
-                    )
-                    node['domain'] = self._reduce_prefix(str(node['rdfs:domain']))[0]
-                    del node['rdfs:domain']
-            if 'rdfs:subClassOf' in node:
-                # could be BNode only, since others are already converted to links
-                for n in node['rdfs:subClassOf']:
-                    bnode = nodes_dict[n]
-                    prop = bnode['owl:onProperty'][0]
-                    label = prop if type(prop) is URIRef else nodes_dict[prop]['owl:inverseOf'][0]
-                    label, _ = self._reduce_prefix(label)
-                    target = bnode['owl:onClass'][0] if 'owl:onClass' in bnode else bnode['owl:someValuesFrom'][0]
-                    additional = self._get_cardinality(bnode)
-                    links.append(self._create_link(
-                        nodes_dict, node['id'], target, label, **additional
-                    ))
-                del node['rdfs:subClassOf']
-            if node['links'] > 0: # (type(node['id']) is URIRef) and
-                # del node['links']
-                self._colour_nodes(node)
-                result.append(node)
-        return result
+        for n in node['rdfs:subClassOf']:
+            bnode = nodes_dict[n]
+            if self._is_restriction(bnode):
+                prop = bnode['owl:onProperty'][0]
+                label = prop if type(prop) is URIRef else nodes_dict[prop]['owl:inverseOf'][0]
+                label, _ = self._reduce_prefix(label)
+                target = bnode['owl:onClass'][0] if 'owl:onClass' in bnode else bnode['owl:someValuesFrom'][0]
+                additional = self._get_cardinality(bnode)
+                links.append(self._create_link(
+                    nodes_dict, node['id'], target, label, **additional
+                ))
+            else:
+                links.append(self._create_link(
+                    nodes_dict, node['id'], bnode, 'rdfs:subClassOf', STROKE_SUBCLASS
+                ))
+        del node['rdfs:subClassOf']
+
+    def _is_restriction(self, node) -> bool:
+        """
+        Checks if node is an owl:Restriction type
+        :param node: bnode for checking
+        :return: True is in ancestors is owl:Restriction
+        """
+        if 'rdf:type' in node:
+            for ancestor in node['rdf:type']:
+                if self._reduce_prefix(ancestor)[0] == 'owl:Restriction':
+                    if (('owl:onClass' in node) or ('owl:someValuesFrom' in node)) and \
+                            ('owl:onProperty' in node):
+                        return True
+        if ANCESTOR_NAME in node:
+            for ancestor in node[ANCESTOR_NAME]:
+                if ancestor == 'owl:Restriction':
+                    if (('owl:onClass' in node) or ('owl:someValuesFrom' in node)) and \
+                            ('owl:onProperty' in node):
+                        return True
+        return False
 
     @staticmethod
     def _get_cardinality(node) -> dict:
+        """
+        Sets up cardinality properties of nodes
+        :param node: node for processing
+        :return: dictionary of properties
+        """
         result = {}
         if 'owl:qualifiedCardinality' in node:
             result['cardinality'] = node['owl:qualifiedCardinality'][0]
@@ -290,11 +383,10 @@ class Graph:
             result['minCardinality'] = node['owl:minQualifiedCardinality'][0]
         return result
 
-    def _colour_nodes(self, node):
-        if 'color' not in node:
-            if node['id'] in self._endurants:
-                node['isEndurant'] = True
-                node['color'] = self._endurants[node['id']]
-            if node['id'] in self._relators:
-                node['isRelator'] = True
-                node['color'] = COLOUR_RELATOR
+    ##############################################
+    # PART 3: Graph's description generation
+    def _make_description(self, description, n_statements, n_nodes, n_links):
+        description['networkx_statements'] = n_statements
+        description['num_nodes'] = n_nodes
+        description['num_links'] = n_links
+        return description
