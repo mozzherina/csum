@@ -291,15 +291,14 @@ class Graph:
         Creates a color property for node
         :param node: node for processing
         """
-        if 'color' not in node:
-            if node['id'] in self._endurants:
-                node['isEndurant'] = True
-                node['color'] = self._endurants[node['id']]
-            elif node['id'] in self._relators:
-                node['isRelator'] = True
-                node['color'] = COLOUR_RELATOR
-            else:
-                node['color'] = COLOUR_BASIC
+        if node['id'] in self._endurants:
+            node['isEndurant'] = True
+            node['color'] = self._endurants[node['id']]
+        elif node['id'] in self._relators:
+            node['isRelator'] = True
+            node['color'] = COLOUR_RELATOR
+        elif 'color' not in node:
+            node['color'] = COLOUR_BASIC
 
     @staticmethod
     def _create_link(nodes_dict, source, target, label, stroke=STROKE_OTHER, **kwargs):
@@ -345,7 +344,7 @@ class Graph:
                 ))
             else:
                 links.append(self._create_link(
-                    nodes_dict, node['id'], bnode, 'rdfs:subClassOf', STROKE_SUBCLASS
+                    nodes_dict, node['id'], bnode['id'], 'rdfs:subClassOf', STROKE_SUBCLASS
                 ))
         del node['rdfs:subClassOf']
 
@@ -385,7 +384,8 @@ class Graph:
 
     ##############################################
     # PART 3: Graph's description generation
-    def _make_description(self, description, n_statements, n_nodes, n_links):
+    @staticmethod
+    def _make_description(description, n_statements, n_nodes, n_links):
         description['networkx_statements'] = n_statements
         description['num_nodes'] = n_nodes
         description['num_links'] = n_links
