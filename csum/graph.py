@@ -25,6 +25,14 @@ class Graph:
     def data(self):
         return self._data
 
+    @property
+    def relators(self):
+        return self._relators
+
+    @property
+    def endurants(self):
+        return self._endurants.keys()
+
     @staticmethod
     def _get_config_basics() -> dict:
         result = dict()

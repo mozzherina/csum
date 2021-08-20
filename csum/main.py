@@ -61,9 +61,10 @@ async def load_data(original: bool = SHOW_ORIGIN,
     return JSONResponse(content={'Error': 'Not able to parse the graph'},
                         status_code=400)
 
-"""
+
 @app.post('/apply_r1', response_class=JSONResponse)
-async def apply_r1():
+async def apply_r1(original: bool = SHOW_ORIGIN,
+                   excluded: str = None):
     if not graph.data:
         logger.warning('No data for processing. Use /load_data first')
         raise HTTPException(
@@ -71,8 +72,13 @@ async def apply_r1():
             detail='No data loaded'
         )
     rules_applicator.apply_r1(graph)
-    return JSONResponse(content=graph.get_core(base_only=True))
-"""
+    excluded = excluded.split(',') if excluded else EXCLUDED_PREFIX
+    graph_json = graph.visualize(original, excluded)
+    if graph_json:
+        return JSONResponse(content=graph_json)
+    return JSONResponse(content={'Error': 'Not able to parse the graph'},
+                        status_code=400)
+
 
 if __name__ == "__main__":
     uvicorn.run(app, port=API_PORT)
