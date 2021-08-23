@@ -11,6 +11,10 @@ class RApplicator:
         self.logger = logger
 
     def apply_r1(self, graph: Graph):
+        """
+        Applies R1 rule to the given graph
+        :param graph: graph for processing
+        """
         # this one is only possible, because we know relators already
         query_all = graph.data.query(QG.get_relators())
         relations = {}
@@ -27,38 +31,63 @@ class RApplicator:
                     for i in range(len(mediations)):
                         for j in range(i + 1, len(mediations)):
                             self._process_endurants(
-                                graph.data, relations, relator, mediations[i], mediations[j]
+                                graph.data, relations, relator, mediations[i], mediations[j], str(i)+str(j)
                             )
                     # remove relator and all bnodes from it
                     graph.data.remove((relator, None, None))
                     for r in mediations:
                        graph.data.remove((relations[relator][r], None, None))
 
-
-    def _process_endurants(self, graph, relations, relator, endurant1, endurant2):
+    def _process_endurants(self, graph, relations, relator, endurant1, endurant2, rname: str):
+        """
+        Main function for processing relator-endurant2-endurant2
+        :param graph: RDFGraph object
+        :param relations: results of the query
+        :param relator: relator object
+        :param endurant1: first of the endurant objects
+        :param endurant2: second of the endurant objects
+        :param rname: string to be added to the name at the end (for rewriting issues)
+        """
         connection = self._get_connection(graph, endurant1, endurant2)
         if not connection:
             # No connection between {endurant1} and {endurant2}
-            connection = self._create_connection(graph, relator, endurant1, endurant2)
+            connection = self._create_connection(graph, str(relator) + rname, endurant1, endurant2)
         # There is a connection between {endurant1} and {endurant2}
-        # need to take care about cardinality
         for endurant in [endurant1, endurant2]:
-            bnode = relations[endurant][relator]
-            self._move_cardinality(graph, bnode, connection)
-            graph.remove((endurant, None, bnode))
-            graph.remove((bnode, None, None))
+            bnode1 = relations[endurant][relator]
+            bnode2 = relations[relator][endurant]
+            self._move_cardinality(graph, bnode1, connection)
+            self._move_cardinality(graph, bnode2, connection)
+            graph.remove((endurant, None, bnode1))
+            graph.remove((bnode1, None, None))
+
+    @staticmethod
+    def _get_connection(graph, endurant1, endurant2):
         """
-            for (_, relation, _) in graph.triples((bnode1, None, relator)):
-                graph.add((bnode1, relation, endurant2))
-                graph.remove((bnode1, relation, relator))
-            bnode2 = relations[endurant2][relator]
-            for (_, relation, _) in graph.triples((bnode2, None, relator)):
-                graph.add((bnode2, relation, endurant1))
-                graph.remove((bnode2, relation, relator))
+        Returns a node, that connects endurants if ther is any
+        :param graph: RDFGraph object
+        :param endurant1: first endurant
+        :param endurant2: second endurant
+        :return: a connection node if exists
         """
+        for (s, _, _) in graph.triples((None, RDFS.domain, endurant1)):
+            for (s, _, _) in graph.triples((s, RDFS.range, endurant2)):
+                return s
+        for (s, _, _) in graph.triples((None, RDFS.domain, endurant2)):
+            for (s, _, _) in graph.triples((s, RDFS.range, endurant1)):
+                return s
+        return None
 
     @staticmethod
     def _create_connection(graph, name: str, endurant1, endurant2):
+        """
+        Creates connection between endurant1 and endurant2
+        by defining a node with the corresponding range and domain
+        :param graph: RDFGraph object
+        :param name: label
+        :param endurant1: first endurant
+        :param endurant2: second endurant
+        """
         connection = URIRef(name.lower())
         graph.add((connection, RDFS.label, Literal(name, lang=LANGUAGE)))
         graph.add((connection, RDF.type, OWL.ObjectProperty))
@@ -74,22 +103,7 @@ class RApplicator:
             for (s, p, o) in graph.triples((from_node, cardinality, None)):
                 graph.add((to_node, p, o))
 
-    @staticmethod
-    def _get_connection(graph, endurant1, endurant2):
-        """
-        Returns a node, that connects endurants
-        :param graph: RDFGraph object
-        :param endurant1: first endurant
-        :param endurant2: second endurant
-        :return: a connection node if exists
-        """
-        for (s, _, _) in graph.triples((None, RDFS.domain, endurant1)):
-            for (s, _, _) in graph.triples((s, RDFS.range, endurant2)):
-                return s
-        for (s, _, _) in graph.triples((None, RDFS.domain, endurant2)):
-            for (s, _, _) in graph.triples((s, RDFS.range, endurant1)):
-                return s
-        return None
+
 
 
 

@@ -181,7 +181,10 @@ class Graph:
         """
         label = name.split('#')
         if label[0] in self._bind.keys():
-            prefix = self._bind[label[0]][0] + ':' + label[-1]
+            prefix = self._bind[label[0]][0]
+            if len(prefix) > 0:
+                prefix += ':'
+            prefix += label[-1]
             return prefix, self._bind[label[0]][1]
         return label[-1], COLOUR_BASIC
 
@@ -272,12 +275,7 @@ class Graph:
                 if 'rdfs:domain' in node:
                     if 'rdfs:range' in node:
                         # convert this into link between nodes
-                        links.append(self._create_link(
-                            nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label']
-                        ))
-                        links.append(self._create_link(
-                            nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label']
-                        ))
+                        self._domain_range(nodes_dict, links, node)
                     else:
                         # if it is domain only, then convert this into property
                         self._add_property(
@@ -292,6 +290,37 @@ class Graph:
                 # del node['links']
                 self._colour_nodes(node)
                 result.append(node)
+        return result
+
+    def _domain_range(self, nodes_dict, links, node):
+        """
+        Creates links between range and domain
+        Saves all properties
+        :param nodes_dict: dictionary of nodes
+        :param links: list of links
+        :param node: node for processing
+        :return:
+        """
+        props = self._other_properties(node)
+        node['label'], _ = self._reduce_prefix(node['label'])
+        links.append(self._create_link(
+            nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label'], **props
+        ))
+        links.append(self._create_link(
+            nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label'], **props
+        ))
+
+    @staticmethod
+    def _other_properties(node) -> dict:
+        """
+        Form a dictionary of other properties of node
+        :param node: node for processing
+        :return: dictionary with properties
+        """
+        result = {}
+        for key in node.keys():
+            if key not in ['rdf:type', 'rdfs:domain', 'rdfs:range', 'id', 'label', 'links']:
+                result[key] = node[key]
         return result
 
     def _colour_nodes(self, node):
@@ -346,9 +375,8 @@ class Graph:
                 label = prop if type(prop) is URIRef else nodes_dict[prop]['owl:inverseOf'][0]
                 label, _ = self._reduce_prefix(label)
                 target = bnode['owl:onClass'][0] if 'owl:onClass' in bnode else bnode['owl:someValuesFrom'][0]
-                additional = self._get_cardinality(bnode)
                 links.append(self._create_link(
-                    nodes_dict, node['id'], target, label, **additional
+                    nodes_dict, node['id'], target, label, **self._other_properties(bnode)
                 ))
             else:
                 links.append(self._create_link(
@@ -375,20 +403,21 @@ class Graph:
                             ('owl:onProperty' in node):
                         return True
         return False
-
+    """
     @staticmethod
     def _get_cardinality(node) -> dict:
-        """
+        
         Sets up cardinality properties of nodes
         :param node: node for processing
         :return: dictionary of properties
-        """
+        
         result = {}
         if 'owl:qualifiedCardinality' in node:
             result['cardinality'] = node['owl:qualifiedCardinality'][0]
         if 'owl:minQualifiedCardinality' in node:
             result['minCardinality'] = node['owl:minQualifiedCardinality'][0]
         return result
+    """
 
     ##############################################
     # PART 3: Graph's description generation
