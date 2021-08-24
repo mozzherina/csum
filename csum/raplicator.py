@@ -10,6 +10,9 @@ class RApplicator:
     def __init__(self, logger):
         self.logger = logger
 
+    ##############################################
+    # R1
+    ##############################################
     def apply_r1(self, graph: Graph):
         """
         Applies R1 rule to the given graph
@@ -103,7 +106,55 @@ class RApplicator:
             for (s, p, o) in graph.triples((from_node, cardinality, None)):
                 graph.add((to_node, p, o))
 
+    ##############################################
+    # R2
+    ##############################################
+    def apply_r2(self, graph: Graph):
+        """
+        Applies R2 rule to the given graph
+        :param graph: graph for processing
+        """
+        for nonsortal in graph.nonsortals:
+            base_sortal = False
+            for (relation, _, _) in graph.data.triples((None, RDFS.domain, nonsortal)):
+                # check for RDFS.range is endurant or datatype?!
+                i = 0
+                for (endurant, _, _) in graph.data.triples((None, RDFS.subClassOf, nonsortal)):
+                    base_sortal = True
+                    if endurant in graph.endurants:
+                        self._move_connection(graph, relation, nonsortal, i, endurant)
+                        i += 1
+                    graph.data.remove((endurant, RDFS.subClassOf, nonsortal))
+                    # if endurant in graph.nonsortals:
+                    #     print("recursion on: " + endurant)
+                graph.data.remove((relation, None, None))
+            # remove nonsortal
+            if base_sortal:
+                graph.data.remove((nonsortal, None, None))
+        # set nonsortals to None
+        graph.clear_nonsortals()
 
-
+    @staticmethod
+    def _move_connection(graph, relation_name, role_name: str, idx: int, endurant):
+        """
+        Moves connection with relation_name to endurant as domain
+        Keeps all the properties, adds role_name as comment
+        :param graph: Graph object
+        :param relation_name: name of the relation to be moved
+        :param role_name: NonSortal role name
+        :param idx: number of the relation
+        :param endurant: where to move
+        :return: new connection
+        """
+        connection = URIRef(str(relation_name) + str(idx))
+        for (_, p, o) in graph.data.triples((relation_name, None, None)):
+            if p == RDFS.domain:
+                graph.data.add((connection, p, endurant))
+            else:
+                graph.data.add((connection, p, o))
+        name, _ = graph.reduce_prefix(role_name)
+        # is there anything better?
+        graph.data.add((connection, RDFS.comment, Literal(name)))
+        return connection
 
 

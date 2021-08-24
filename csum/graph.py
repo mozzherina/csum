@@ -44,6 +44,9 @@ class Graph:
         endurants.update(self._nonsortals.keys())
         return endurants
 
+    def clear_nonsortals(self):
+        self._nonsortals = dict()
+
     @staticmethod
     def _get_config_basics() -> dict:
         result = dict()
@@ -161,7 +164,7 @@ class Graph:
         """
         result = []
         for link in links:
-            link['label'], _ = self._reduce_prefix(str(link['triples'][0][1]))
+            link['label'], _ = self.reduce_prefix(str(link['triples'][0][1]))
             if original:
                 result.append(self._basic_link_processing(link, nodes))
             else:
@@ -190,7 +193,7 @@ class Graph:
                     self._add_property(nodes[link['source']], label, link['target'])
         return result
 
-    def _reduce_prefix(self, name: str) -> (str, str):
+    def reduce_prefix(self, name: str) -> (str, str):
         """
         From <http://purl.org/nemo/gufo#Kind> makes gufo:Kind
         :param name: full name with prefix
@@ -231,7 +234,7 @@ class Graph:
         result = []
         if any('/' + s + '#' in str(link['target']) for s in excluded):
             # target node must be excluded, keep it as a property
-            target, _ = self._reduce_prefix(str(link['target']))
+            target, _ = self.reduce_prefix(str(link['target']))
             self._add_property(nodes[link['source']], ANCESTOR_NAME, target)
         elif (type(link['source']) is URIRef) and (type(link['target']) is URIRef):
             # keep this link, but update its properties
@@ -287,7 +290,7 @@ class Graph:
         result = []
         for node in nodes:
             if 'label' not in node:
-                node['label'], node['color'] = self._reduce_prefix(str(node['id']))
+                node['label'], node['color'] = self.reduce_prefix(str(node['id']))
             if not original:
                 if 'rdfs:domain' in node:
                     if 'rdfs:range' in node:
@@ -298,7 +301,7 @@ class Graph:
                         self._add_property(
                             nodes_dict[node['rdfs:domain']], PROPERTY_NAME, node['label']
                         )
-                        node['domain'], _ = self._reduce_prefix(str(node['rdfs:domain']))
+                        node['domain'], _ = self.reduce_prefix(str(node['rdfs:domain']))
                         del node['rdfs:domain']
                 if 'rdfs:subClassOf' in node:
                     # could be BNodes only, since others are already converted to links
@@ -319,7 +322,7 @@ class Graph:
         :return:
         """
         props = self._other_properties(node)
-        node['label'], _ = self._reduce_prefix(node['label'])
+        node['label'], _ = self.reduce_prefix(node['label'])
         links.append(self._create_link(
             nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label'], **props
         ))
@@ -396,7 +399,7 @@ class Graph:
             if self._is_restriction(bnode):
                 prop = bnode['owl:onProperty'][0]
                 label = prop if type(prop) is URIRef else nodes_dict[prop]['owl:inverseOf'][0]
-                label, _ = self._reduce_prefix(label)
+                label, _ = self.reduce_prefix(label)
                 target = bnode['owl:onClass'][0] if 'owl:onClass' in bnode else bnode['owl:someValuesFrom'][0]
                 links.append(self._create_link(
                     nodes_dict, node['id'], target, label, **self._other_properties(bnode)
@@ -415,7 +418,7 @@ class Graph:
         """
         if 'rdf:type' in node:
             for ancestor in node['rdf:type']:
-                if self._reduce_prefix(ancestor)[0] == 'owl:Restriction':
+                if self.reduce_prefix(ancestor)[0] == 'owl:Restriction':
                     if (('owl:onClass' in node) or ('owl:someValuesFrom' in node)) and \
                             ('owl:onProperty' in node):
                         return True
