@@ -7,8 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from csum import API_PORT, LOG_FILE, SHOW_ORIGIN, EXCLUDED_PREFIX
-from csum.raplicator import RApplicator
-from csum.graph import Graph
+from csum.meta import MetaGraph
 
 
 def setup_custom_logger(name):
@@ -26,8 +25,7 @@ def setup_custom_logger(name):
 
 
 logger = setup_custom_logger('csum')
-rules_applicator = RApplicator(logger)
-graph = Graph(logger)
+graph = MetaGraph(logger)
 
 app = FastAPI()
 app.add_middleware(
@@ -54,47 +52,33 @@ async def load_data(original: bool = SHOW_ORIGIN,
                     excluded: str = None,
                     data: UploadFile = File(...)):
     excluded = excluded.split(',') if excluded else EXCLUDED_PREFIX
-    if graph.load_data(data.file):
-        graph_json = graph.visualize(original, excluded)
+    if graph.load_data(data.file, original, excluded):
+        graph_json = graph.visualize()
         if graph_json:
             return JSONResponse(content=graph_json)
     return JSONResponse(content={'Error': 'Not able to parse the graph'},
                         status_code=400)
 
 
-@app.post('/apply_r1', response_class=JSONResponse)
-async def apply_r1(original: bool = SHOW_ORIGIN,
-                   excluded: str = None):
+def apply_meta(function_name):
     if not graph.data:
         logger.warning('No data for processing. Use /load_data first')
-        raise HTTPException(
-            status_code=428,
-            detail='No data loaded'
-        )
-    rules_applicator.apply_r1(graph)
-    excluded = excluded.split(',') if excluded else EXCLUDED_PREFIX
-    graph_json = graph.visualize(original, excluded)
+        raise HTTPException(status_code=428, detail='No data loaded')
+    graph_json = function_name()
     if graph_json:
         return JSONResponse(content=graph_json)
     return JSONResponse(content={'Error': 'Not able to parse the graph'},
                         status_code=400)
 
-@app.post('/apply_r2', response_class=JSONResponse)
-async def apply_r1(original: bool = SHOW_ORIGIN,
-                   excluded: str = None):
-    if not graph.data:
-        logger.warning('No data for processing. Use /load_data first')
-        raise HTTPException(
-            status_code=428,
-            detail='No data loaded'
-        )
-    rules_applicator.apply_r2(graph)
-    excluded = excluded.split(',') if excluded else EXCLUDED_PREFIX
-    graph_json = graph.visualize(original, excluded)
-    if graph_json:
-        return JSONResponse(content=graph_json)
-    return JSONResponse(content={'Error': 'Not able to parse the graph'},
-                        status_code=400)
+
+@app.post('/plus', response_class=JSONResponse)
+async def plus():
+    return apply_meta(graph.plus)
+
+
+@app.post('/minus', response_class=JSONResponse)
+async def minus():
+    return apply_meta(graph.minus)
 
 
 if __name__ == "__main__":
