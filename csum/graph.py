@@ -1,7 +1,7 @@
+from colour import Color
 from rdflib import URIRef, Graph as RDFGraph
 from rdflib.extras.external_graph_libs import rdflib_to_networkx_digraph
 from networkx.readwrite import json_graph
-from colour import Color
 
 from csum import LANGUAGE, \
     LABEL_NAME, ANCESTOR_NAME, PROPERTY_NAME, \
@@ -19,7 +19,8 @@ class Graph:
         self._description = self._get_config_basics()
         self._bind = dict()
         self._relators = set()
-        self._endurants = dict()
+        self._sortals = dict()
+        self._nonsortals = dict()
 
     @property
     def data(self):
@@ -30,8 +31,18 @@ class Graph:
         return self._relators
 
     @property
+    def sortals(self):
+        return self._sortals.keys()
+
+    @property
+    def nonsortals(self):
+        return self._nonsortals.keys()
+
+    @property
     def endurants(self):
-        return self._endurants.keys()
+        endurants = set(self._sortals.keys())
+        endurants.update(self._nonsortals.keys())
+        return endurants
 
     @staticmethod
     def _get_config_basics() -> dict:
@@ -59,8 +70,8 @@ class Graph:
             # set up of gufo's properties of the graph
             self._relators = self._get_relators()
             self._description['num_relators'] = len(self._relators)
-            self._endurants = self._get_endurants()
-            self._description['num_endurants'] = len(self._endurants)
+            self._sortals, self._nonsortals = self._get_endurants()
+            self._description['num_endurants'] = len(self._sortals) + len(self._nonsortals)
             return True
 
     def _set_binds(self) -> dict:
@@ -76,7 +87,7 @@ class Graph:
             result[ns] = (prefix, str(color))
         return result
 
-    def _get_relators(self):
+    def _get_relators(self) -> set:
         results = set()
         for subj in self._data.transitive_subjects(
                 URIRef('http://www.w3.org/2000/01/rdf-schema#subClassOf'),
@@ -84,18 +95,24 @@ class Graph:
             results.add(subj)
         return results
 
-    def _get_endurants(self):
-        results = dict()
+    def _get_endurants(self) -> (dict, dict):
+        sortals = dict()
+        nonsortals = dict()
         colors = list(Color(COLOUR_ENDURANT1).range_to(Color(COLOUR_ENDURANT2), 3))
-        for endurant_name, n in zip(['Kind', 'SubKind', 'Role', 'Phase', 'Category',
-                                     'RoleMixin', 'PhaseMixin', 'Mixin'],
-                                    [0, 1, 1, 1, 1, 2, 2, 2]):
+        for sortal_name, n in zip(['Kind', 'SubKind', 'Role', 'Phase'],
+                                    [0, 1, 1, 1]):
             for subj in self._data.transitive_subjects(
                     URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
-                    URIRef('http://purl.org/nemo/gufo#' + endurant_name)):
+                    URIRef('http://purl.org/nemo/gufo#' + sortal_name)):
                 if subj not in self._relators:
-                    results[subj] = str(colors[n])
-        return results
+                    sortals[subj] = str(colors[n])
+            for nonsortal_name in ['Category', 'RoleMixin', 'PhaseMixin', 'Mixin']:
+                for subj in self._data.transitive_subjects(
+                        URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
+                        URIRef('http://purl.org/nemo/gufo#' + nonsortal_name)):
+                    if subj not in self._relators:
+                        nonsortals[subj] = str(colors[2])
+        return sortals, nonsortals
 
     ##############################################
     # Data Visualizing
@@ -306,9 +323,11 @@ class Graph:
         links.append(self._create_link(
             nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label'], **props
         ))
+        """
         links.append(self._create_link(
             nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label'], **props
         ))
+        """
 
     @staticmethod
     def _other_properties(node) -> dict:
@@ -319,7 +338,8 @@ class Graph:
         """
         result = {}
         for key in node.keys():
-            if key not in ['rdf:type', 'rdfs:domain', 'rdfs:range', 'id', 'label', 'links']:
+            if key not in ['rdf:type', 'rdfs:domain', 'rdfs:range', 'id', 'label',
+                           'links', 'owl:onProperty', 'owl:onClass', 'owl:someValuesFrom']:
                 result[key] = node[key]
         return result
 
@@ -328,9 +348,12 @@ class Graph:
         Creates a color property for node
         :param node: node for processing
         """
-        if node['id'] in self._endurants:
-            node['isEndurant'] = True
-            node['color'] = self._endurants[node['id']]
+        if node['id'] in self._sortals:
+            node['isSortal'] = True
+            node['color'] = self._sortals[node['id']]
+        elif node['id'] in self._nonsortals:
+            node['isNonSortal'] = True
+            node['color'] = self._nonsortals[node['id']]
         elif node['id'] in self._relators:
             node['isRelator'] = True
             node['color'] = COLOUR_RELATOR
@@ -403,21 +426,6 @@ class Graph:
                             ('owl:onProperty' in node):
                         return True
         return False
-    """
-    @staticmethod
-    def _get_cardinality(node) -> dict:
-        
-        Sets up cardinality properties of nodes
-        :param node: node for processing
-        :return: dictionary of properties
-        
-        result = {}
-        if 'owl:qualifiedCardinality' in node:
-            result['cardinality'] = node['owl:qualifiedCardinality'][0]
-        if 'owl:minQualifiedCardinality' in node:
-            result['minCardinality'] = node['owl:minQualifiedCardinality'][0]
-        return result
-    """
 
     ##############################################
     # PART 3: Graph's description generation
