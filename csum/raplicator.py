@@ -3,7 +3,6 @@ from rdflib.namespace import RDF, RDFS, OWL
 
 from csum import LANGUAGE
 from csum.graph import Graph
-from csum.queries import QueriesGenerator as QG
 
 
 class RApplicator:
@@ -19,12 +18,7 @@ class RApplicator:
         :param graph: graph for processing
         """
         # this one is only possible, because we know relators already
-        query_all = graph.data.query(QG.get_relators())
-        relations = {}
-        for row in query_all:
-            if row.relator not in relations:
-                relations[row.relator] = {}
-            relations[row.relator][row.endurant] = row.bnode
+        relations = self._get_relator_endurants(graph.data, graph.relators, graph.endurants)
         # process relators one by one
         for relator in graph.relators:
             if relator in relations:
@@ -40,6 +34,33 @@ class RApplicator:
                     graph.data.remove((relator, None, None))
                     for r in mediations:
                        graph.data.remove((relations[relator][r], None, None))
+        # set relators to None
+        graph.clear_relators()
+
+    def _get_relator_endurants(self, graph, relators: set, endurants: set):
+        """
+        Forms a dictionary with bnodes between relators-endurants
+        :param graph: RDFGraph object
+        :param relators: set of relators
+        :param endurants: set of endurants
+        :return: dictionary {relator -> {endurant -> bnode}}
+        """
+        result = {}
+        all_nodes = relators.copy()
+        all_nodes.update(endurants)
+        for relator in all_nodes:
+            for (_, _, bnode) in graph.triples((relator, RDFS.subClassOf, None)):
+                for (_, _, endurant) in graph.triples((bnode, OWL.onClass, None)):
+                    if relator not in result:
+                        result[relator] = {}
+                    result[relator][endurant] = bnode
+                    endurants.add(endurant)
+                for (_, _, endurant) in graph.triples((bnode, OWL.someValuesFrom, None)):
+                    if relator not in result:
+                        result[relator] = {}
+                    result[relator][endurant] = bnode
+                    endurants.add(endurant)
+        return result
 
     def _process_endurants(self, graph, relations, relator, endurant1, endurant2, rname: str):
         """

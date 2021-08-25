@@ -44,6 +44,9 @@ class Graph:
         endurants.update(self._nonsortals.keys())
         return endurants
 
+    def clear_relators(self):
+        self._relators = set()
+
     def clear_nonsortals(self):
         self._nonsortals = dict()
 
@@ -72,9 +75,7 @@ class Graph:
             self._bind = self._set_binds()
             # set up of gufo's properties of the graph
             self._relators = self._get_relators()
-            self._description['num_relators'] = len(self._relators)
             self._sortals, self._nonsortals = self._get_endurants()
-            self._description['num_endurants'] = len(self._sortals) + len(self._nonsortals)
             return True
 
     def _set_binds(self) -> dict:
@@ -432,8 +433,9 @@ class Graph:
 
     ##############################################
     # PART 3: Graph's description generation
-    @staticmethod
-    def _make_description(description, n_statements, n_nodes, n_links):
+    def _make_description(self, description, n_statements, n_nodes, n_links):
+        description['num_relators'] = len(self._relators)
+        description['num_endurants'] = len(self._sortals) + len(self._nonsortals)
         description['networkx_statements'] = n_statements
         description['num_nodes'] = n_nodes
         description['num_links'] = n_links
