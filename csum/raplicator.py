@@ -37,7 +37,8 @@ class RApplicator:
         # set relators to None
         graph.clear_relators()
 
-    def _get_relator_endurants(self, graph, relators: set, endurants: set):
+    @staticmethod
+    def _get_relator_endurants(graph, relators: set, endurants: set):
         """
         Forms a dictionary with bnodes between relators-endurants
         :param graph: RDFGraph object
@@ -66,7 +67,7 @@ class RApplicator:
         """
         Main function for processing relator-endurant2-endurant2
         :param graph: RDFGraph object
-        :param relations: results of the query
+        :param relations: dict of all relations
         :param relator: relator object
         :param endurant1: first of the endurant objects
         :param endurant2: second of the endurant objects
@@ -105,8 +106,8 @@ class RApplicator:
     @staticmethod
     def _create_connection(graph, name: str, endurant1, endurant2):
         """
-        Creates connection between endurant1 and endurant2
-        by defining a node with the corresponding range and domain
+        Creates connections between endurant1 and endurant2
+        by defining 2 nodes with the corresponding range and domain
         :param graph: RDFGraph object
         :param name: label
         :param endurant1: first endurant
@@ -115,6 +116,7 @@ class RApplicator:
         connection = URIRef(name.lower())
         graph.add((connection, RDFS.label, Literal(name, lang=LANGUAGE)))
         graph.add((connection, RDF.type, OWL.ObjectProperty))
+        # or vice versa
         graph.add((connection, RDFS.domain, endurant1))
         graph.add((connection, RDFS.range, endurant2))
         return connection
@@ -136,21 +138,22 @@ class RApplicator:
         :param graph: graph for processing
         """
         for nonsortal in graph.nonsortals:
-            base_sortal = False
-            for (relation, _, _) in graph.data.triples((None, RDFS.domain, nonsortal)):
-                # check for RDFS.range is endurant or datatype?!
-                i = 0
-                for (endurant, _, _) in graph.data.triples((None, RDFS.subClassOf, nonsortal)):
-                    base_sortal = True
-                    if endurant in graph.endurants:
-                        self._move_connection(graph, relation, nonsortal, i, endurant)
-                        i += 1
+            endurants = []
+            for (endurant, _, _) in graph.data.triples((None, RDFS.subClassOf, nonsortal)):
+                if endurant in graph.endurants:
+                    endurants.append(endurant)
+            if endurants:
+                for predicate in [RDFS.domain, RDFS.range]:
+                    for (relation, _, _) in graph.data.triples((None, predicate, nonsortal)):
+                        # check for RDFS.range is endurant or datatype?!
+                        for endurant, i in zip(endurants, range(len(endurants))):
+                            self._move_connection(graph, relation, nonsortal, i, endurant)
+                        # if endurant in graph.nonsortals:
+                        #     print("recursion on: " + endurant)
+                        graph.data.remove((relation, None, None))
+                for endurant in endurants:
                     graph.data.remove((endurant, RDFS.subClassOf, nonsortal))
-                    # if endurant in graph.nonsortals:
-                    #     print("recursion on: " + endurant)
-                graph.data.remove((relation, None, None))
-            # remove nonsortal
-            if base_sortal:
+                # remove nonsortal
                 graph.data.remove((nonsortal, None, None))
         # set nonsortals to None
         graph.clear_nonsortals()
@@ -169,13 +172,26 @@ class RApplicator:
         """
         connection = URIRef(str(relation_name) + str(idx))
         for (_, p, o) in graph.data.triples((relation_name, None, None)):
-            if p == RDFS.domain:
+            if ((p == RDFS.domain) or (p == RDFS.range)) and (o == role_name):
                 graph.data.add((connection, p, endurant))
             else:
                 graph.data.add((connection, p, o))
         name, _ = graph.reduce_prefix(role_name)
-        # is there anything better?
+        # TODO: is there anything better?
         graph.data.add((connection, RDFS.comment, Literal(name)))
         return connection
 
-
+    ##############################################
+    # R3
+    ##############################################
+    def apply_r3(self, graph: Graph):
+        """
+        Applies R3 rule to the given graph
+        :param graph: graph for processing
+        """
+        for sortal in graph.sortals:
+            for (sortal2, _, sortal1) in graph.data.triples((sortal, RDFS.subClassOf, None)):
+                if sortal1 in graph.sortals:
+                    for (s, p, o) in graph.data.triples((None, None, sortal2)):
+                        if (p == RDFS.domain) or (p == RDFS.range):
+                            print(s, p, o)

@@ -1,4 +1,5 @@
 from colour import Color
+from string import digits
 from rdflib import URIRef, Graph as RDFGraph
 from rdflib.extras.external_graph_libs import rdflib_to_networkx_digraph
 from networkx.readwrite import json_graph
@@ -205,7 +206,7 @@ class Graph:
             prefix = self._bind[label[0]][0]
             if len(prefix) > 0:
                 prefix += ':'
-            prefix += label[-1]
+            prefix += label[-1].rstrip(digits)
             return prefix, self._bind[label[0]][1]
         return label[-1], COLOUR_BASIC
 
@@ -320,18 +321,17 @@ class Graph:
         :param nodes_dict: dictionary of nodes
         :param links: list of links
         :param node: node for processing
-        :return:
         """
         props = self._other_properties(node)
         node['label'], _ = self.reduce_prefix(node['label'])
         links.append(self._create_link(
             nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label'], **props
         ))
-        """
-        links.append(self._create_link(
-            nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label'], **props
-        ))
-        """
+        # if range is endurant, then create link backwards
+        if node['rdfs:range'] in self.endurants:
+            links.append(self._create_link(
+                nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label'], **props
+            ))
 
     @staticmethod
     def _other_properties(node) -> dict:
