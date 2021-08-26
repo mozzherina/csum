@@ -42,6 +42,8 @@ class MetaGraph:
                 self._rules_applicator.apply_r2(self.data[self._state])
             if self._state == 3:
                 self._rules_applicator.apply_r3(self.data[self._state])
+            if self._state == 4:
+                self._rules_applicator.apply_r4(self.data[self._state])
         return self.visualize()
 
     def minus(self):

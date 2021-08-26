@@ -177,7 +177,7 @@ class RApplicator:
             else:
                 graph.data.add((connection, p, o))
         name, _ = graph.reduce_prefix(role_name)
-        # TODO: is there anything better?
+        # TODO: is there anything better for a role?
         graph.data.add((connection, RDFS.comment, Literal(name)))
         return connection
 
@@ -189,9 +189,57 @@ class RApplicator:
         Applies R3 rule to the given graph
         :param graph: graph for processing
         """
+        not_collapsable = graph.get_disjointed()
         for sortal in graph.sortals:
-            for (sortal2, _, sortal1) in graph.data.triples((sortal, RDFS.subClassOf, None)):
-                if sortal1 in graph.sortals:
-                    for (s, p, o) in graph.data.triples((None, None, sortal2)):
-                        if (p == RDFS.domain) or (p == RDFS.range):
-                            print(s, p, o)
+            if sortal not in not_collapsable:
+                for (sortal2, _, sortal1) in graph.data.triples((sortal, RDFS.subClassOf, None)):
+                    if sortal1 in graph.sortals:
+                        has_moved = False
+                        for (s, p, o) in graph.data.triples((None, None, sortal2)):
+                            if (p == RDFS.domain) or (p == RDFS.range):
+                                has_moved = True
+                                graph.data.remove((s, p, o))
+                                graph.data.add((s, p, sortal1))
+                                comment = ''
+                                for(_, _, c) in graph.data.triples((s, RDFS.comment, None)):
+                                    comment = c
+                                    graph.data.remove((s, RDFS.comment, c))
+                                name, _ = graph.reduce_prefix(str(sortal2))
+                                name = str(comment) + '-' + name if comment else name
+                                graph.data.add((s, RDFS.comment, Literal(name)))
+                        if has_moved:
+                            graph.data.remove((sortal2, None, None))
+        # reset sortals
+        graph.reset_sortals()
+
+    ##############################################
+    # R4
+    ##############################################
+    def apply_r4(self, graph: Graph):
+        """
+        Applies R4 rule to the given graph
+        :param graph: graph for processing
+        """
+        not_collapsable = graph.get_disjointed()
+        for sortal in graph.sortals:
+            if sortal not in not_collapsable:
+                for (sortal2, _, sortal1) in graph.data.triples((sortal, RDFS.subClassOf, None)):
+                    if sortal1 in graph.sortals:
+                        has_moved = False
+                        for (s, p, o) in graph.data.triples((None, None, sortal2)):
+                            if (p == RDFS.domain) or (p == RDFS.range):
+                                has_moved = True
+                                graph.data.remove((s, p, o))
+                                graph.data.add((s, p, sortal1))
+                                comment = ''
+                                for(_, _, c) in graph.data.triples((s, RDFS.comment, None)):
+                                    comment = c
+                                    graph.data.remove((s, RDFS.comment, c))
+                                name, _ = graph.reduce_prefix(str(sortal2))
+                                name = str(comment) + '-' + name if comment else name
+                                graph.data.add((s, RDFS.comment, Literal(name)))
+                        if has_moved:
+                            graph.data.remove((sortal2, None, None))
+        # reset sortals
+        graph.reset_sortals()
+

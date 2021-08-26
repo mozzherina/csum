@@ -1,6 +1,7 @@
 from colour import Color
 from string import digits
 from rdflib import URIRef, Graph as RDFGraph
+from rdflib.namespace import RDFS
 from rdflib.extras.external_graph_libs import rdflib_to_networkx_digraph
 from networkx.readwrite import json_graph
 
@@ -50,6 +51,9 @@ class Graph:
 
     def clear_nonsortals(self):
         self._nonsortals = dict()
+
+    def reset_sortals(self):
+        self._sortals, self._nonsortals = self._get_endurants()
 
     @staticmethod
     def _get_config_basics() -> dict:
@@ -103,9 +107,9 @@ class Graph:
     def _get_endurants(self) -> (dict, dict):
         sortals = dict()
         nonsortals = dict()
-        colors = list(Color(COLOUR_ENDURANT1).range_to(Color(COLOUR_ENDURANT2), 3))
-        for sortal_name, n in zip(['Kind', 'SubKind', 'Role', 'Phase'],
-                                    [0, 1, 1, 1]):
+        colors = list(Color(COLOUR_ENDURANT1).range_to(Color(COLOUR_ENDURANT2), 4))
+        for sortal_name, n in zip(['Kind', 'SubKind', 'Phase', 'Role'],
+                                    [0, 1, 1, 2]):
             for subj in self._data.transitive_subjects(
                     URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
                     URIRef('http://purl.org/nemo/gufo#' + sortal_name)):
@@ -116,8 +120,43 @@ class Graph:
                         URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
                         URIRef('http://purl.org/nemo/gufo#' + nonsortal_name)):
                     if subj not in self._relators:
-                        nonsortals[subj] = str(colors[2])
+                        nonsortals[subj] = str(colors[3])
         return sortals, nonsortals
+
+    ##############################################
+    # Used in R3-R4
+    ##############################################
+    def get_disjointed(self) -> set:
+        result = set()
+        # person -> subkinds -> woman, man
+        disjoints = dict()
+        self._get_disjoint_by_name('SubKind', disjoints)
+        self._get_disjoint_by_name('Phase', disjoints)
+        # TODO: to be deleted as soon as clarify roles
+        self._get_disjoint_by_name('Role', disjoints)
+        for key, value in disjoints.items():
+            if ('SubKind' in value) and (len(value['SubKind']) > 1):
+                result.update(value['SubKind'])
+            if ('Phase' in value) and (len(value['Phase']) > 1):
+                result.update(value['Phase'])
+            # TODO: to be deleted as soon as clarify roles
+            if ('Role' in value) and (len(value['Role']) > 1):
+                result.update(value['Role'])
+        return result
+
+    def _get_disjoint_by_name(self, name: str, result: dict):
+        all_disjoints = set()
+        for subj in self._data.transitive_subjects(
+                URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
+                URIRef('http://purl.org/nemo/gufo#' + name)):
+            all_disjoints.add(subj)
+        for subj in all_disjoints:
+            for specific, _, general in self._data.triples((subj, RDFS.subClassOf, None)):
+                if general not in result:
+                    result[general] = {}
+                if name not in result[general]:
+                    result[general][name] = []
+                result[general][name].append(specific)
 
     ##############################################
     # Data Visualizing
