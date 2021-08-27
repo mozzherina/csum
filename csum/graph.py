@@ -46,13 +46,10 @@ class Graph:
         endurants.update(self._nonsortals.keys())
         return endurants
 
-    def clear_relators(self):
-        self._relators = set()
+    def reset_relators(self):
+        self._relators = self._get_relators()
 
-    def clear_nonsortals(self):
-        self._nonsortals = dict()
-
-    def reset_sortals(self):
+    def reset_endurants(self):
         self._sortals, self._nonsortals = self._get_endurants()
 
     @staticmethod
@@ -130,21 +127,38 @@ class Graph:
         result = set()
         # person -> subkinds -> woman, man
         disjoints = dict()
-        self._get_disjoint_by_name('SubKind', disjoints)
-        self._get_disjoint_by_name('Phase', disjoints)
+        self.get_disjoint_by_name('SubKind', disjoints)
+        self.get_disjoint_by_name('Phase', disjoints)
         # TODO: to be deleted as soon as clarify roles
-        self._get_disjoint_by_name('Role', disjoints)
+        # self.get_disjoint_by_name('Role', disjoints)
         for key, value in disjoints.items():
             if ('SubKind' in value) and (len(value['SubKind']) > 1):
                 result.update(value['SubKind'])
             if ('Phase' in value) and (len(value['Phase']) > 1):
                 result.update(value['Phase'])
             # TODO: to be deleted as soon as clarify roles
-            if ('Role' in value) and (len(value['Role']) > 1):
+            # if ('Role' in value) and (len(value['Role']) > 1):
+            #    result.update(value['Role'])
+        return result
+
+    def get_jointed(self) -> set:
+        result = set()
+        # person -> subkinds -> woman, man
+        disjoints = dict()
+        self.get_disjoint_by_name('SubKind', disjoints)
+        self.get_disjoint_by_name('Phase', disjoints)
+        self.get_disjoint_by_name('Role', disjoints)
+        for key, value in disjoints.items():
+            if ('SubKind' in value) and (len(value['SubKind']) == 1):
+                result.update(value['SubKind'])
+            if ('Phase' in value) and (len(value['Phase']) == 1):
+                result.update(value['Phase'])
+            if 'Role' in value:
                 result.update(value['Role'])
         return result
 
-    def _get_disjoint_by_name(self, name: str, result: dict):
+
+    def get_disjoint_by_name(self, name: str, result: dict):
         all_disjoints = set()
         for subj in self._data.transitive_subjects(
                 URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),

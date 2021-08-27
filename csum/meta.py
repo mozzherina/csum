@@ -31,7 +31,7 @@ class MetaGraph:
     def plus(self):
         if self._state + 1 in self.data:
             self._state += 1
-        elif self._state + 1 > 3:
+        elif self._state + 1 > 4:
             self.logger.info("No further zoom-in is possible")
         else:
             self._state += 1

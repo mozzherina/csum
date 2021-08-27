@@ -1,4 +1,5 @@
-from rdflib import URIRef, Literal
+from rdflib import URIRef, Literal, BNode
+from rdflib.collection import Collection
 from rdflib.namespace import RDF, RDFS, OWL
 
 from csum import LANGUAGE
@@ -33,9 +34,9 @@ class RApplicator:
                     # remove relator and all bnodes from it
                     graph.data.remove((relator, None, None))
                     for r in mediations:
-                       graph.data.remove((relations[relator][r], None, None))
-        # set relators to None
-        graph.clear_relators()
+                        graph.data.remove((relations[relator][r], None, None))
+        # update relators
+        graph.reset_relators()
 
     @staticmethod
     def _get_relator_endurants(graph, relators: set, endurants: set):
@@ -107,7 +108,7 @@ class RApplicator:
     def _create_connection(graph, name: str, endurant1, endurant2):
         """
         Creates connections between endurant1 and endurant2
-        by defining 2 nodes with the corresponding range and domain
+        by defining a node with the corresponding range and domain
         :param graph: RDFGraph object
         :param name: label
         :param endurant1: first endurant
@@ -130,6 +131,88 @@ class RApplicator:
                 graph.add((to_node, p, o))
 
     ##############################################
+    # Additional functions, to be used by R2-R4 rules
+    ##############################################
+    @staticmethod
+    def _get_super_classes(graph) -> set:
+        """
+        Forms set of classes that have subclasses
+        :param graph: graph for processing
+        :return: set of superclasses
+        """
+        result = set()
+        for sortal in graph.sortals:
+            for (_, _, o) in graph.data.triples((None, RDFS.subClassOf, sortal)):
+                result.add(o)
+        return result
+
+    @staticmethod
+    def _get_sub_classes(graph, name) -> set:
+        """
+        Forms set of subclasses
+        :param graph: graph for processing
+        :param name: name of superclass
+        :return: set of superclasses
+        """
+        result = set()
+        for (endurant, _, _) in graph.data.triples((None, RDFS.subClassOf, name)):
+            if endurant in graph.endurants:
+                result.add(endurant)
+        return result
+
+    @staticmethod
+    def _update_comment(graph, connection, role_name: str):
+        """
+        Updates existing comment with role name
+        :param graph: Graph object
+        :param connection: URIRef that exists or was created
+        :param role_name: to be added as comment
+        """
+        comment = ''
+        for (_, _, c) in graph.data.triples((connection, RDFS.comment, None)):
+            comment = c
+            graph.data.remove((connection, RDFS.comment, c))
+        name, _ = graph.reduce_prefix(role_name)
+        name = str(comment) + '-' + name if comment else name
+        graph.data.add((connection, RDFS.comment, Literal(name)))
+
+    def _move_relation(self, graph, relation, role, target):
+        """
+        Moves relation to target as domain or range
+        Keeps all the properties, adds role as comment
+        :param graph: Graph object
+        :param relation: Relation to be moved
+        :param role: NonSortal role name
+        :param target: where to move
+        :return: new connection
+        """
+        for (s, p, o) in graph.data.triples((relation, None, None)):
+            if ((p == RDFS.domain) or (p == RDFS.range)) and (o == role):
+                graph.data.remove((s, p, o))
+                graph.data.add((s, p, target))
+                # TODO: is there anything better for a role?
+                self._update_comment(graph, relation, str(role))
+
+    def _create_relation(self, graph, relation, idx, role, target):
+        """
+        Duplicates relation to target as domain or range
+        Keeps all the properties, adds role as comment
+        :param graph: Graph object
+        :param relation: Relation to be duplicated
+        :param idx: Index of the created relation
+        :param role: Role name
+        :param target: where to move
+        """
+        connection = URIRef(str(relation) + str(idx))
+        for (_, p, o) in graph.data.triples((relation, None, None)):
+            if ((p == RDFS.domain) or (p == RDFS.range)) and (o == role):
+                graph.data.add((connection, p, target))
+            else:
+                graph.data.add((connection, p, o))
+        # TODO: is there anything better for a role?
+        self._update_comment(graph, connection, str(role))
+
+    ##############################################
     # R2
     ##############################################
     def apply_r2(self, graph: Graph):
@@ -138,48 +221,20 @@ class RApplicator:
         :param graph: graph for processing
         """
         for nonsortal in graph.nonsortals:
-            endurants = []
-            for (endurant, _, _) in graph.data.triples((None, RDFS.subClassOf, nonsortal)):
-                if endurant in graph.endurants:
-                    endurants.append(endurant)
+            endurants = self._get_sub_classes(graph, nonsortal)
             if endurants:
                 for predicate in [RDFS.domain, RDFS.range]:
                     for (relation, _, _) in graph.data.triples((None, predicate, nonsortal)):
-                        # check for RDFS.range is endurant or datatype?!
+                        # TODO: check for RDFS.range is endurant or datatype?!
                         for endurant, i in zip(endurants, range(len(endurants))):
-                            self._move_connection(graph, relation, nonsortal, i, endurant)
-                        # if endurant in graph.nonsortals:
-                        #     print("recursion on: " + endurant)
+                            self._create_relation(graph, relation, i, nonsortal, endurant)
                         graph.data.remove((relation, None, None))
                 for endurant in endurants:
                     graph.data.remove((endurant, RDFS.subClassOf, nonsortal))
                 # remove nonsortal
                 graph.data.remove((nonsortal, None, None))
-        # set nonsortals to None
-        graph.clear_nonsortals()
-
-    @staticmethod
-    def _move_connection(graph, relation_name, role_name: str, idx: int, endurant):
-        """
-        Moves connection with relation_name to endurant as domain
-        Keeps all the properties, adds role_name as comment
-        :param graph: Graph object
-        :param relation_name: name of the relation to be moved
-        :param role_name: NonSortal role name
-        :param idx: number of the relation
-        :param endurant: where to move
-        :return: new connection
-        """
-        connection = URIRef(str(relation_name) + str(idx))
-        for (_, p, o) in graph.data.triples((relation_name, None, None)):
-            if ((p == RDFS.domain) or (p == RDFS.range)) and (o == role_name):
-                graph.data.add((connection, p, endurant))
-            else:
-                graph.data.add((connection, p, o))
-        name, _ = graph.reduce_prefix(role_name)
-        # TODO: is there anything better for a role?
-        graph.data.add((connection, RDFS.comment, Literal(name)))
-        return connection
+        # nonsortals should be updated
+        graph.reset_endurants()
 
     ##############################################
     # R3
@@ -189,28 +244,25 @@ class RApplicator:
         Applies R3 rule to the given graph
         :param graph: graph for processing
         """
-        not_collapsable = graph.get_disjointed()
-        for sortal in graph.sortals:
-            if sortal not in not_collapsable:
-                for (sortal2, _, sortal1) in graph.data.triples((sortal, RDFS.subClassOf, None)):
-                    if sortal1 in graph.sortals:
-                        has_moved = False
-                        for (s, p, o) in graph.data.triples((None, None, sortal2)):
-                            if (p == RDFS.domain) or (p == RDFS.range):
-                                has_moved = True
-                                graph.data.remove((s, p, o))
-                                graph.data.add((s, p, sortal1))
-                                comment = ''
-                                for(_, _, c) in graph.data.triples((s, RDFS.comment, None)):
-                                    comment = c
-                                    graph.data.remove((s, RDFS.comment, c))
-                                name, _ = graph.reduce_prefix(str(sortal2))
-                                name = str(comment) + '-' + name if comment else name
-                                graph.data.add((s, RDFS.comment, Literal(name)))
-                        if has_moved:
-                            graph.data.remove((sortal2, None, None))
+        roles_tree = dict()
+        graph.get_disjoint_by_name('Role', roles_tree)
+        not_seen = set(roles_tree.keys())
+        for kind in roles_tree.keys():
+            if kind in not_seen:
+                self._moves_to_ancestor(graph, roles_tree, not_seen, kind)
         # reset sortals
-        graph.reset_sortals()
+        # TODO: fix an error, removes organization?
+        graph.reset_endurants()
+
+    def _moves_to_ancestor(self, graph, roles_tree, not_seen, ancestor):
+        for descendant in roles_tree[ancestor]['Role']:
+            if descendant in not_seen and descendant in roles_tree.keys():
+                self._moves_to_ancestor(graph, roles_tree, not_seen, descendant)
+            for predicate in [RDFS.domain, RDFS.range]:
+                for (relation, _, _) in graph.data.triples((None, predicate, descendant)):
+                    self._move_relation(graph, relation, descendant, ancestor)
+            graph.data.remove((descendant, None, None))
+        not_seen.remove(ancestor)
 
     ##############################################
     # R4
@@ -220,26 +272,48 @@ class RApplicator:
         Applies R4 rule to the given graph
         :param graph: graph for processing
         """
-        not_collapsable = graph.get_disjointed()
-        for sortal in graph.sortals:
-            if sortal not in not_collapsable:
-                for (sortal2, _, sortal1) in graph.data.triples((sortal, RDFS.subClassOf, None)):
-                    if sortal1 in graph.sortals:
-                        has_moved = False
-                        for (s, p, o) in graph.data.triples((None, None, sortal2)):
-                            if (p == RDFS.domain) or (p == RDFS.range):
-                                has_moved = True
-                                graph.data.remove((s, p, o))
-                                graph.data.add((s, p, sortal1))
-                                comment = ''
-                                for(_, _, c) in graph.data.triples((s, RDFS.comment, None)):
-                                    comment = c
-                                    graph.data.remove((s, RDFS.comment, c))
-                                name, _ = graph.reduce_prefix(str(sortal2))
-                                name = str(comment) + '-' + name if comment else name
-                                graph.data.add((s, RDFS.comment, Literal(name)))
-                        if has_moved:
-                            graph.data.remove((sortal2, None, None))
-        # reset sortals
-        graph.reset_sortals()
+        superclasses = self._get_super_classes(graph)
+        disjoints = dict()
+        graph.get_disjoint_by_name('SubKind', disjoints)
+        graph.get_disjoint_by_name('Phase', disjoints)
+        for kind in disjoints.keys():
+            self._process_kind(graph, kind, disjoints, superclasses)
+
+    def _process_kind(self, graph, key, tree, superclasses):
+        # this key was already processed
+        if key not in superclasses:
+            return
+        # print("working item is", key)
+        for role in ['Phase', 'SubKind']:
+            if role in tree[key]:
+                for r in tree[key][role]:
+                    if r in superclasses:
+                        self._process_kind(graph, r, tree, superclasses)
+                        print("removing from superclasses", r)
+                        # superclasses.remove(r)
+                    for predicate in [RDFS.domain, RDFS.range]:
+                        for (relation, _, _) in graph.data.triples((None, predicate, r)):
+                            print("move from ", r, " to ", key)
+                            self._move_relation(graph, relation, r, key)
+                print("create enumeration to ", key, " namely ", tree[key][role])
+                enumeration = URIRef(str(key) + "Enumeration")
+                graph.data.add((enumeration, RDF.type, RDF.List))
+                prev = RDF.nil
+                for alt in tree[key][role]:
+                    listName = BNode()
+                    graph.data.add((listName, RDF.first, Literal(str(alt))))
+                    graph.data.remove((alt, None, None))
+                    graph.data.add((listName, RDF.rest, prev))
+                    prev = listName
+                # c = Collection(graph.data, prev)
+                graph.data.add((enumeration, OWL.equivalentClass, prev))
+                connection = URIRef(str(key) + "EnumConn")
+                graph.data.add((connection, RDF.type, OWL.ObjectProperty))
+                graph.data.add((connection, RDFS.domain, key))
+                graph.data.add((connection, RDFS.range, enumeration))
+        print("removing ", key)
+        superclasses.remove(key)
+        # graph.data.remove((key, None, None))
+
+
 
