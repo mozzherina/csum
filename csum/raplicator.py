@@ -29,7 +29,7 @@ class RApplicator:
                     for i in range(len(mediations)):
                         for j in range(i + 1, len(mediations)):
                             self._process_endurants(
-                                graph.data, relations, relator, mediations[i], mediations[j], str(i)+str(j)
+                                graph, relations, relator, mediations[i], mediations[j], str(i)+str(j)
                             )
                     # remove relator and all bnodes from it
                     graph.data.remove((relator, None, None))
@@ -64,28 +64,30 @@ class RApplicator:
                     endurants.add(endurant)
         return result
 
-    def _process_endurants(self, graph, relations, relator, endurant1, endurant2, rname: str):
+    def _process_endurants(self, graph, relations, relator, endurant1, endurant2, rname):
         """
         Main function for processing relator-endurant2-endurant2
-        :param graph: RDFGraph object
+        :param graph: graph object
         :param relations: dict of all relations
         :param relator: relator object
         :param endurant1: first of the endurant objects
         :param endurant2: second of the endurant objects
-        :param rname: string to be added to the name at the end (for rewriting issues)
+        :param rname: index for unique ids
         """
-        connection = self._get_connection(graph, endurant1, endurant2)
+        connection = self._get_connection(graph.data, endurant1, endurant2)
         if not connection:
             # No connection between {endurant1} and {endurant2}
-            connection = self._create_connection(graph, str(relator) + rname, endurant1, endurant2)
+            connection = self._create_connection(
+                graph, str(relator), endurant1, endurant2, rname
+            )
         # There is a connection between {endurant1} and {endurant2}
         for endurant in [endurant1, endurant2]:
             bnode1 = relations[endurant][relator]
             bnode2 = relations[relator][endurant]
-            self._move_cardinality(graph, bnode1, connection)
-            self._move_cardinality(graph, bnode2, connection)
-            graph.remove((endurant, None, bnode1))
-            graph.remove((bnode1, None, None))
+            self._move_cardinality(graph.data, bnode1, connection)
+            self._move_cardinality(graph.data, bnode2, connection)
+            graph.data.remove((endurant, None, bnode1))
+            graph.data.remove((bnode1, None, None))
 
     @staticmethod
     def _get_connection(graph, endurant1, endurant2):
@@ -105,21 +107,23 @@ class RApplicator:
         return None
 
     @staticmethod
-    def _create_connection(graph, name: str, endurant1, endurant2):
+    def _create_connection(graph, name: str, endurant1, endurant2, rname):
         """
         Creates connections between endurant1 and endurant2
         by defining a node with the corresponding range and domain
-        :param graph: RDFGraph object
+        :param graph: graph object
         :param name: label
         :param endurant1: first endurant
         :param endurant2: second endurant
+        :param rname: index for unique ids
         """
-        connection = URIRef(name.lower())
-        graph.add((connection, RDFS.label, Literal(name, lang=LANGUAGE)))
-        graph.add((connection, RDF.type, OWL.ObjectProperty))
+        label, _ = graph.reduce_prefix(name)
+        connection = URIRef(name + rname)
+        graph.data.add((connection, RDFS.label, Literal(label, lang=LANGUAGE)))
+        graph.data.add((connection, RDF.type, OWL.ObjectProperty))
         # or vice versa
-        graph.add((connection, RDFS.domain, endurant1))
-        graph.add((connection, RDFS.range, endurant2))
+        graph.data.add((connection, RDFS.domain, endurant1))
+        graph.data.add((connection, RDFS.range, endurant2))
         return connection
 
     @staticmethod
@@ -150,7 +154,7 @@ class RApplicator:
     def _get_sub_classes(graph, name) -> set:
         """
         Forms set of subclasses
-        :param graph: graph for processing
+        :param graph: graph object
         :param name: name of superclass
         :return: set of superclasses
         """
@@ -204,11 +208,18 @@ class RApplicator:
         :param target: where to move
         """
         connection = URIRef(str(relation) + str(idx))
+        has_label = False
         for (_, p, o) in graph.data.triples((relation, None, None)):
             if ((p == RDFS.domain) or (p == RDFS.range)) and (o == role):
                 graph.data.add((connection, p, target))
             else:
+                if p == RDFS.label:
+                    has_label = True
                 graph.data.add((connection, p, o))
+        # links to datatypes don't have rdfs:labels, so need to create
+        if not has_label:
+            label, _ = graph.reduce_prefix(str(relation))
+            graph.data.add((connection, RDFS.label, Literal(label, lang=LANGUAGE)))
         # TODO: is there anything better for a role?
         self._update_comment(graph, connection, str(role))
 
@@ -218,7 +229,7 @@ class RApplicator:
     def apply_r2(self, graph: Graph):
         """
         Applies R2 rule to the given graph
-        :param graph: graph for processing
+        :param graph: graph object
         """
         for nonsortal in graph.nonsortals:
             endurants = self._get_sub_classes(graph, nonsortal)

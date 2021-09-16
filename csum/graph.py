@@ -157,7 +157,6 @@ class Graph:
                 result.update(value['Role'])
         return result
 
-
     def get_disjoint_by_name(self, name: str, result: dict):
         all_disjoints = set()
         for subj in self._data.transitive_subjects(
@@ -237,9 +236,12 @@ class Graph:
                         self._add_property(
                             nodes[link['source']], LABEL_NAME, str(link['target']) + language
                         )
-                # rdfs:domain and range: include as property
+                # rdfs:domain or range: include as property
                 elif (label == 'rdfs:domain') or (label == 'rdfs:range'):
                     self._add_property(nodes[link['source']], label, link['target'], as_list=False)
+                elif label == 'owl:annotatedProperty':
+                    prop_name, _ = self.reduce_prefix(str(link['target']))
+                    self._add_property(nodes[link['source']], label, prop_name, as_list=False)
                 # if one of subclasses, more complicated logic
                 elif label in self.SUBCLASS_LABELS:
                     result.extend(self._subclass_link_processing(excluded, link, nodes))
@@ -259,7 +261,8 @@ class Graph:
             prefix = self._bind[label[0]][0]
             if len(prefix) > 0:
                 prefix += ':'
-            prefix += label[-1].rstrip(digits)
+            # TODO: check if .rstrip(digits) is needed in the next line
+            prefix += label[-1]
             return prefix, self._bind[label[0]][1]
         return label[-1], COLOUR_BASIC
 
@@ -353,10 +356,11 @@ class Graph:
                         self._domain_range(nodes_dict, links, node)
                     else:
                         # if it is domain only, then convert this into property
+                        prop_name, _ = self.reduce_prefix(str(node['id']))
                         self._add_property(
-                            nodes_dict[node['rdfs:domain']], PROPERTY_NAME, node['label']
+                            nodes_dict[node['rdfs:domain']], PROPERTY_NAME, prop_name
                         )
-                        node['domain'], _ = self.reduce_prefix(str(node['rdfs:domain']))
+                        #node['domain'] = str(node['rdfs:domain']) #self.reduce_prefix(
                         del node['rdfs:domain']
                 if 'rdfs:subClassOf' in node:
                     # could be BNodes only, since others are already converted to links
@@ -380,11 +384,13 @@ class Graph:
         links.append(self._create_link(
             nodes_dict, node['rdfs:domain'], node['rdfs:range'], node['label'], **props
         ))
+        """
         # if range is endurant, then create link backwards
         if node['rdfs:range'] in self.endurants:
             links.append(self._create_link(
                 nodes_dict, node['rdfs:range'], node['rdfs:domain'], node['label'], **props
             ))
+        """
 
     @staticmethod
     def _other_properties(node) -> dict:
@@ -395,7 +401,7 @@ class Graph:
         """
         result = {}
         for key in node.keys():
-            if key not in ['rdf:type', 'rdfs:domain', 'rdfs:range', 'id', 'label',
+            if key not in ['rdf:type', 'rdfs:domain', 'rdfs:range', 'id', 'label', 'color',
                            'links', 'owl:onProperty', 'owl:onClass', 'owl:someValuesFrom']:
                 result[key] = node[key]
         return result
